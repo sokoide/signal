@@ -30,16 +30,17 @@
  * the post-exec state can be inspected inside the same binary.
  */
 
+/* Feature-test macros are declared here so this file builds standalone with
+ * the bare "cc ..." command above, independent of the Makefile.
+ *   macOS: _DARWIN_C_SOURCE exposes SIGSTKSZ (used by the sigaltstack demo).
+ *   Linux: _GNU_SOURCE exposes the same family of interfaces uniformly. */
 #if (defined(__APPLE__) && defined(__MACH__))
-#ifndef _XOPEN_SOURCE
-#define _XOPEN_SOURCE 700 /* macOS: keep feature-test macros conservative */
-#endif
 #ifndef _DARWIN_C_SOURCE
 #define _DARWIN_C_SOURCE
 #endif
 #else
 #ifndef _GNU_SOURCE
-#define _GNU_SOURCE /* Linux: for GNU extensions if required */
+#define _GNU_SOURCE
 #endif
 #endif
 

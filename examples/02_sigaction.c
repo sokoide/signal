@@ -154,13 +154,23 @@ static void alarm_handler(int sig) {
  * the handler is executing.  With SA_NODEFER the signal is not blocked, so
  * the handler can be entered recursively before the first invocation returns.
  *
- * IMPORTANT: nd_depth++ / nd_depth-- works here only because the re-entry is
- * caused by raise(), which is a *synchronous* call from within the handler.
- * sig_atomic_t only guarantees atomicity for a single read or a single write;
- * it does NOT make ++/-- atomic with respect to true asynchronous signal
- * delivery.  If this handler were interrupted by an asynchronous SIGUSR1 from
- * another source while nd_depth was being updated, the increment/decrement
- * could race.  Do not use ++/-- on sig_atomic_t variables in real handlers.
+ * Why nd_depth++ / nd_depth-- is safe HERE (and only here):
+ * The recursive entry below is triggered by raise(), which is a *synchronous*
+ * call made from within this handler.  The second invocation runs to
+ * completion and returns before raise() itself returns, so the two
+ * invocations never access nd_depth concurrently -- the re-entrancy is fully
+ * sequential, not truly asynchronous.  That is the only reason a compound
+ * read-modify-write on a sig_atomic_t is acceptable in this demo.
+ *
+ * Why you must NOT copy this ++/-- pattern into a real async handler:
+ * sig_atomic_t only guarantees that a single read or a single write is atomic.
+ * "nd_depth++" is read-modify-write and is NOT atomic with respect to a signal
+ * that may arrive asynchronously at any moment from another source.  If an
+ * async SIGUSR1 could interrupt this handler between the read and the write of
+ * the increment, one update would be lost and nd_depth would drift.  So: use
+ * this demo only to observe the SA_NODEFER re-entrancy behavior.  In
+ * production handlers, restrict yourself to a single read or a single write of
+ * a sig_atomic_t variable, or use C11 <stdatomic.h> for compound operations.
  */
 static volatile sig_atomic_t nd_depth = 0;
 static volatile sig_atomic_t nd_raised = 0;

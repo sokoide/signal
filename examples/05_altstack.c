@@ -20,7 +20,9 @@
  *
  * Note:
  *   On macOS the definition of SIGSTKSZ may require _DARWIN_C_SOURCE.
- *   This repository's Makefile adds it automatically.
+ *   The required feature-test macros are defined at the top of this file,
+ *   so it builds standalone with the bare "cc ..." command above (the
+ *   Makefile adds nothing beyond -Wno-deprecated-declarations on macOS).
  */
 
 #if (defined(__APPLE__) && defined(__MACH__))

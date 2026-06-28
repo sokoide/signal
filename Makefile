@@ -1,10 +1,14 @@
 CC      ?= cc
 CFLAGS  ?= -std=c11 -Wall -Wextra -O2 -g
 
-# macOS: ucontext API is marked deprecated in 10.6+ but still works.
-# Silence the noise on Darwin only. Also expose SIGSTKSZ on older versions.
+# macOS: <ucontext.h> (used by 05/08/09) is marked deprecated but still works.
+# Silence the -Wdeprecated-declarations noise on Darwin only.
+# NOTE: feature-test macros (_DARWIN_C_SOURCE, _XOPEN_SOURCE, _GNU_SOURCE,
+# _POSIX_C_SOURCE) are deliberately NOT set here.  Every .c file declares the
+# macros it needs at the top, so each example also builds standalone with the
+# bare "cc ..." command shown in its header comment.
 ifeq ($(shell uname -s),Darwin)
-	CFLAGS += -Wno-deprecated-declarations -D_DARWIN_C_SOURCE
+	CFLAGS += -Wno-deprecated-declarations
 endif
 
 # macOS bundles real-time functions (timer_create, etc.) in libc.

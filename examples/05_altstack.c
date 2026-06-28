@@ -138,23 +138,26 @@ int main(void) {
      * ============================================================
      *
      * SIGSTKSZ は「通常のシグナルハンドラを実行するのに十分な」
-     * 最小サイズです。MINSIGSTKSZ より小さくすることはできません。
+     * サイズです。MINSIGSTKSZ より小さくすることはできません。
      *
      * 実際のアプリケーションでは、ハンドラが使うスタック量に応じて
-     * SIGSTKSZ より大きな領域を確保します。ここでは SIGSTKSZ ちょうどを
+     * SIGSTKSZ より大きな領域を確保してください。ここではデモ用に SIGSTKSZ を
      * 使います。
      */
     stack_t ss;
-    /* SIGSTKSZ may be non-constant on glibc >= 2.34.
-     * MINSIGSTKSZ is always a compile-time constant and is the
-     * minimum size POSIX guarantees for a signal handler. */
-    ss.ss_size = MINSIGSTKSZ;
+    /* SIGSTKSZ は代替スタックに推奨される典型的なサイズです。
+     * glibc >= 2.34 では非定数式になる場合があり、その場合は sysconf() 等で
+     * 動的にサイズを決める必要があります。ここではデモ用に SIGSTKSZ
+     * を使います。
+     * 本番アプリケーションでは、ハンドラのスタック使用量に応じて余裕を持たせて
+     * ください。 */
+    ss.ss_size = SIGSTKSZ;
     alt_stack_mem = malloc(ss.ss_size);
-    ss.ss_sp = alt_stack_mem;
-    if (ss.ss_sp == NULL) {
+    if (alt_stack_mem == NULL) {
         perror("malloc");
         exit(EXIT_FAILURE);
     }
+    ss.ss_sp = alt_stack_mem;
     ss.ss_flags = 0; /* SS_DISABLE ではなく有効にする */
 
     if (sigaltstack(&ss, NULL) == -1) {

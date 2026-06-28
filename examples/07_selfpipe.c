@@ -58,6 +58,10 @@
  * These are global so the signal handler can write to the pipe. */
 static int selfpipe[2] = {-1, -1};
 
+/* Count of signals dropped because the self-pipe buffer was full.
+ * This is volatile sig_atomic_t because it is written by the handler. */
+static volatile sig_atomic_t selfpipe_overflow_count = 0;
+
 /*
  * Signal handler.
  *
@@ -71,17 +75,17 @@ static void selfpipe_handler(int sig) {
      * signals, and up to 64 on Linux for real-time signals). */
     unsigned char c = (unsigned char)sig;
 
-    /* write() is async-signal-safe.  We ignore the return value because
-     * there is very little useful recovery possible inside a handler, but
-     * making the write end non-blocking prevents us from blocking here.
+    /* write() is async-signal-safe.  Making the write end non-blocking
+     * prevents us from blocking here. If signals arrive faster than the
+     * main loop drains the pipe, the pipe buffer (typically 16-64 KiB)
+     * can fill up and write() returns EAGAIN. We count those drops so
+     * the demo can report the limitation.
      *
-     * NOTE: If signals arrive faster than the main loop drains the
-     * pipe, the pipe buffer (typically 16-64 KiB) can fill up.
-     * When that happens, write() on the non-blocking write end
-     * returns EAGAIN and the signal byte is silently dropped.
      * This is an inherent limitation of the self-pipe pattern.
      * The Linux-specific signalfd(2) avoids this issue. */
-    (void)write(selfpipe[1], &c, 1);
+    if (write(selfpipe[1], &c, 1) == -1 && errno == EAGAIN) {
+        selfpipe_overflow_count++;
+    }
 }
 
 /*
@@ -239,6 +243,12 @@ int main(void) {
                     /* For this demo, either signal triggers clean shutdown. */
                     if (sig == SIGINT || sig == SIGTERM) {
                         printf("[event loop] Shutting down cleanly.\n");
+                        if (selfpipe_overflow_count > 0) {
+                            printf(
+                                "[event loop] Note: %d signal(s) were "
+                                "dropped due to a full self-pipe buffer.\n",
+                                (int)selfpipe_overflow_count);
+                        }
                         close(selfpipe[0]);
                         close(selfpipe[1]);
                         return EXIT_SUCCESS;

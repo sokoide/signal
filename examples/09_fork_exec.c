@@ -10,7 +10,6 @@
  *     - Signal handlers are inherited (the child starts with the same
  *       handler function pointers as the parent).
  *     - The signal mask is inherited.
- *     - The signal mask is inherited.
  *     - Pending signals are *NOT* inherited; the child's pending set is
  *       cleared at the moment of fork().
  *     - The alternate signal stack (sigaltstack()) is inherited on many
@@ -30,6 +29,8 @@
  * The program re-executes itself with the "--after-exec" argument so that
  * the post-exec state can be inspected inside the same binary.
  */
+
+#define _POSIX_C_SOURCE 200809L
 
 #include <signal.h>
 #include <stdio.h>
@@ -168,16 +169,17 @@ static void set_block(int sig, int block) {
 /* Install an alternate signal stack. */
 static void setup_alt_stack(void) {
     stack_t ss;
-    /* SIGSTKSZ may be non-constant on glibc >= 2.34.
-     * MINSIGSTKSZ is always a compile-time constant and is the
-     * minimum size POSIX guarantees for a signal handler. */
-    ss.ss_size = MINSIGSTKSZ;
+    /* SIGSTKSZ is the typical size recommended for an alternate stack.
+     * On glibc >= 2.34 it may be a non-constant expression; on those
+     * systems you may need to allocate dynamically based on sysconf().
+     * For this demo we use SIGSTKSZ directly. */
+    ss.ss_size = SIGSTKSZ;
     alt_stack_mem = malloc(ss.ss_size);
-    ss.ss_sp = alt_stack_mem;
-    if (ss.ss_sp == NULL) {
+    if (alt_stack_mem == NULL) {
         perror("malloc");
         exit(EXIT_FAILURE);
     }
+    ss.ss_sp = alt_stack_mem;
     ss.ss_flags = 0;
     if (sigaltstack(&ss, NULL) == -1) {
         perror("sigaltstack");

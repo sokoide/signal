@@ -81,8 +81,12 @@ static void safe_write_int(long long v) {
     char buf[32];
     int i = (int)sizeof(buf) - 1;
     int negative = (v < 0);
-    unsigned long long u =
-        negative ? (unsigned long long)(-v) : (unsigned long long)v;
+    unsigned long long u;
+    if (negative) {
+        u = 0ULL - (unsigned long long)v; /* avoid LLONG_MIN overflow */
+    } else {
+        u = (unsigned long long)v;
+    }
 
     buf[i] = '\0';
     i--;

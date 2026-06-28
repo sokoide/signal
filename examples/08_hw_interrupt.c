@@ -3,7 +3,7 @@
  *
  * This is the central example of the repository.
  *
- * It demonstrates that a POSIX signal handler is, structurally, the exact
+ * It demonstrates that a POSIX signal handler is, structurally, a close
  * user-space analogue of a CPU hardware-interrupt service routine (ISR).
  *
  * Hardware interrupt flow (x86_64)        POSIX signal flow
@@ -31,6 +31,13 @@
  * inside the handler can deadlock or corrupt state.  write(2) is one of the
  * few POSIX functions guaranteed to be async-signal-safe, so we use it for
  * all handler output.
+ *
+ * Note on ucontext_t
+ * ------------------
+ * ucontext_t and getcontext()/setcontext() were removed from POSIX.1-2008.
+ * They remain widely available on Linux and macOS, but new portable code
+ * should consider alternative mechanisms.  We use ucontext_t here because
+ * it is the most direct way to visualize the saved CPU context.
  *
  * Build:  cc -std=c11 -Wall -Wextra -O2 -g examples/08_hw_interrupt.c -o
  * 08_hw_interrupt Run:    ./08_hw_interrupt
@@ -217,6 +224,9 @@ static void sigvtalrm_isr(int sig, siginfo_t* info, void* uctx_ptr) {
 
     safe_puts("==============================\n");
 
+    /* The same signal is automatically blocked while this handler runs,
+     * so a simple increment is safe even though sig_atomic_t only promises
+     * atomic single reads/writes, not read-modify-write. */
     ++interrupt_count;
 }
 
@@ -254,8 +264,9 @@ int main(void) {
     struct sigaction sa;
 
     printf("=== Timer ISR vs POSIX Signal Handler ===\n");
-    printf("This program demonstrates the 1-to-1 mapping between\n");
-    printf("hardware interrupts / ISRs and POSIX signals / handlers.\n\n");
+    printf("This program demonstrates the structural correspondence\n");
+    printf(
+        "between hardware interrupts / ISRs and POSIX signals / handlers.\n\n");
     printf(
         "Hardware interrupt:   IRQ -> CPU saves regs -> IDT -> ISR -> iret\n");
     printf(

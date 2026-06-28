@@ -26,6 +26,8 @@
  *    cc -std=c11 -Wall -Wextra -O2 -g 06_realtime.c -o 06_realtime -lrt
  */
 
+#define _POSIX_C_SOURCE 200809L
+
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -68,6 +70,13 @@ static volatile sig_atomic_t g_usr1_count = 0;
 /*
  * SA_SIGINFO 形式のハンドラ。
  * sigqueue() で送られたデータは info->si_value に入っています。
+ *
+ * 注意: ハンドラ内で g_events[] と g_event_count を更新していますが、
+ * これは本デモでメイン側が送信前にシグナルをブロックしているため安全です。
+ * 厳密には、シグナルハンドラから非 volatile な共有オブジェクトにアクセスする
+ * ことは C 規格上未定義動作の可能性があります。一般的なコンパイラでは問題に
+ * なりにくいですが、実用では self-pipe trick や volatile sig_atomic_t フラグ
+ * を使う方が安全です。
  */
 static void rt_handler(int sig, siginfo_t* info, void* ucontext) {
     (void)ucontext;

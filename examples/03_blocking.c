@@ -51,8 +51,12 @@ static void safe_write_int(long long v) {
     char buf[32];
     int i = (int)sizeof(buf) - 1;
     int negative = (v < 0);
-    unsigned long long u =
-        negative ? (unsigned long long)(-v) : (unsigned long long)v;
+    unsigned long long u;
+    if (negative) {
+        u = 0ULL - (unsigned long long)v; /* avoid LLONG_MIN overflow */
+    } else {
+        u = (unsigned long long)v;
+    }
 
     buf[i] = '\0';
     i--;
@@ -122,10 +126,13 @@ int main(void) {
      * sigprocmask(SIG_BLOCK, &set, &oldset) adds the signals in `set` to
      * the process signal mask.  The previous mask is saved in `oldset` so
      * we can restore it later.
-     *
      * Analogy to low-level OS code:
      *   sigprocmask(SIG_BLOCK, ...)  ~=  cli   (disable interrupts)
      *   sigprocmask(SIG_UNBLOCK, ...) ~=  sti   (enable interrupts)
+     *
+     * Unlike cli/sti, which control the CPU-wide interrupt flag, sigprocmask
+     * only affects the calling process's (or thread's) signal mask. Other
+     * processes and the kernel continue to run normally.
      *
      * The kernel still delivers the signal, but if it is masked it is held
      * in the pending signal set instead of invoking the handler immediately.

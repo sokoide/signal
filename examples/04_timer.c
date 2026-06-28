@@ -9,6 +9,9 @@
  *
  * 2. setitimer(2): マイクロ秒単位で指定できる「反復」タイマー。
  *    3 種類の計測対象時間があり、それぞれ異なるシグナルが飛びます。
+ *    注意: setitimer() は POSIX.1-2008 で
+ * obsolescent（廃止予定）とされています。 新規コードでは timer_create() /
+ * timer_settime() の検討を推奨します。
  *
  *    | which            | シグナル    | 計測する時間 |
  *    |------------------|-------------|------------------------------------------|
@@ -79,9 +82,13 @@ static void alarm_handler(int sig) {
  */
 static void busy_loop_for_one_second(void) {
     struct timeval start, now;
+    /* 簡潔さのため gettimeofday() を使用。新規コードでは
+     * clock_gettime(CLOCK_MONOTONIC, ...)
+     * を推奨（システム時刻変更の影響を受けない）。 */
     gettimeofday(&start, NULL);
 
-    /* ループ本体: 何もしないが、volatile で最適化を防ぎます */
+    /* spinner は脱出条件には関係なく、ループ本体が最適化で消滅するのを
+     * 防ぐためのダミー変数です。 */
     volatile unsigned long spinner = 0;
     do {
         for (int i = 0; i < 1000000; i++) {

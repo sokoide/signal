@@ -70,6 +70,9 @@ static void safe_write(const char* msg) {
  *   2. Sets a volatile sig_atomic_t flag.
  *   3. Writes a short message with write().
  *   4. Rearms the timer with alarm(), also async-signal-safe.
+ * Note: Although signal() is on the POSIX async-signal-safe list, its
+ * behavior varies across platforms (System V one-shot vs BSD persistent).
+ * Prefer sigaction() when reinstalling a handler from inside a handler.
  */
 static void alarm_handler(int sig) {
     (void)sig; /* unused; silence -Wextra */
@@ -194,7 +197,7 @@ int main(void) {
     printf("\n");
     printf("Async-signal-safe examples (ok in handlers):\n");
     printf("  _exit(), write(), read(), close(), fcntl(), kill(),\n");
-    printf("  sigaction(), sigprocmask(), signal(), alarm(), abort()\n");
+    printf("  sigaction(), signal(), sigprocmask(), alarm(), abort()\n");
     printf("\n");
     printf("UNSAFE in signal handlers (can deadlock or corrupt state):\n");
     printf("  printf(), malloc(), free(), exit(), fopen(), fclose(),\n");

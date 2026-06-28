@@ -30,7 +30,7 @@
  * the post-exec state can be inspected inside the same binary.
  */
 
-#define _POSIX_C_SOURCE 200809L
+#define _GNU_SOURCE
 
 #include <signal.h>
 #include <stdio.h>

@@ -54,11 +54,12 @@
  */
 
 /*
- * _XOPEN_SOURCE is needed for ucontext_t on many systems.
+ * _GNU_SOURCE is needed for ucontext_t and register macros (gregs, REG_RIP, etc.)
+ * on Linux systems.
  * _DARWIN_C_SOURCE ensures SIGSTKSZ / ucontext on older macOS versions.
  */
-#ifndef _XOPEN_SOURCE
-#define _XOPEN_SOURCE 700
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
 #endif
 #ifndef _DARWIN_C_SOURCE
 #define _DARWIN_C_SOURCE
@@ -91,7 +92,8 @@ static void safe_puts(const char* s) {
     while (s[len] != '\0') {
         ++len;
     }
-    (void)write(STDOUT_FILENO, s, len);
+    ssize_t ret = write(STDOUT_FILENO, s, len);
+    (void)ret;
 }
 
 #if (defined(__APPLE__) && defined(__MACH__) &&        \
@@ -100,7 +102,8 @@ static void safe_puts(const char* s) {
 /* Write a single hex digit. */
 static void safe_hexdigit(int n) {
     char c = (char)((n < 10) ? ('0' + n) : ('a' + (n - 10)));
-    (void)write(STDOUT_FILENO, &c, 1);
+    ssize_t ret = write(STDOUT_FILENO, &c, 1);
+    (void)ret;
 }
 
 /* Write a uintptr_t value in hexadecimal with a fixed 0x prefix. */
@@ -199,7 +202,8 @@ static void sigvtalrm_isr(int sig, siginfo_t* info, void* uctx_ptr) {
         if (n >= 10)
             nbuf[pos++] = (char)('0' + ((n / 10) % 10));
         nbuf[pos++] = (char)('0' + (n % 10));
-        (void)write(STDOUT_FILENO, nbuf, (size_t)pos);
+        ssize_t ret = write(STDOUT_FILENO, nbuf, (size_t)pos);
+        (void)ret;
     }
     safe_puts("\n");
 

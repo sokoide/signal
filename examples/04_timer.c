@@ -72,7 +72,8 @@ static void alarm_handler(int sig) {
     (void)sig;
     const char msg[] = "[alarm] SIGALRM fired (one-shot)\n";
     /* write(2) は async-signal-safe です */
-    write(STDOUT_FILENO, msg, sizeof(msg) - 1);
+    ssize_t ret = write(STDOUT_FILENO, msg, sizeof(msg) - 1);
+    (void)ret;
 }
 
 /*

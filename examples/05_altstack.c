@@ -22,7 +22,7 @@
  *   本リポジトリの Makefile では自動的に追加しています。
  */
 
-#define _POSIX_C_SOURCE 200809L
+#define _GNU_SOURCE
 
 #include <signal.h>
 #include <stdio.h>
@@ -43,7 +43,8 @@ static void safe_puts(const char* s) {
     while (s[len] != '\0') {
         len++;
     }
-    write(STDOUT_FILENO, s, len);
+    ssize_t ret = write(STDOUT_FILENO, s, len);
+    (void)ret;
 }
 
 /*
@@ -122,6 +123,8 @@ static void overflow(int n) {
     frame[4095] = (char)(n >> 8);
     frame[8191] = (char)(n >> 16);
     g_depth++;
+    /* Suppress unused variable warning: frame exists to consume stack */
+    (void)frame;
 
     if (n > 0) {
         overflow(n - 1);

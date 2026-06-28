@@ -59,7 +59,8 @@ static void safe_write(const char* msg) {
      * the whole message is written.  For this demo a single write is fine
      * because the messages are short.
      */
-    (void)write(STDERR_FILENO, msg, len);
+    ssize_t ret = write(STDERR_FILENO, msg, len);
+    (void)ret;
 }
 
 /*

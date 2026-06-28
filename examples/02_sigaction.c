@@ -47,7 +47,8 @@ static void safe_write_str(const char* s) {
     while (s[n] != '\0') {
         n++;
     }
-    (void)write(STDOUT_FILENO, s, n);
+    ssize_t ret = write(STDOUT_FILENO, s, n);
+    (void)ret;
 }
 
 static void safe_write_int(long long v) {
@@ -80,7 +81,8 @@ static void safe_write_int(long long v) {
         i--;
     }
 
-    (void)write(STDOUT_FILENO, &buf[i + 1], sizeof(buf) - 2 - (size_t)i);
+    ssize_t ret = write(STDOUT_FILENO, &buf[i + 1], sizeof(buf) - 2 - (size_t)i);
+    (void)ret;
 }
 
 static void safe_write_hex(unsigned long long v) {
@@ -102,7 +104,8 @@ static void safe_write_hex(unsigned long long v) {
         }
     }
 
-    (void)write(STDOUT_FILENO, &buf[i + 1], sizeof(buf) - 2 - (size_t)i);
+    ssize_t ret = write(STDOUT_FILENO, &buf[i + 1], sizeof(buf) - 2 - (size_t)i);
+    (void)ret;
 }
 
 /*
@@ -277,7 +280,8 @@ int main(void) {
             (void)close(pipefd[0]);
             sleep(2);
             c = '!';
-            (void)write(pipefd[1], &c, 1);
+            ssize_t ret = write(pipefd[1], &c, 1);
+            (void)ret;
             (void)close(pipefd[1]);
             _exit(EXIT_SUCCESS);
         }

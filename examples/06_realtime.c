@@ -17,6 +17,15 @@
  *    Linux: SIGRTMIN 〜 SIGRTMAX（通常 34 〜 64）
  *    番号の小さいシグナルが大きいシグナルより先に配送されます。
  *
+ * このサンプルの設計（非同期ハンドラの安全な使い方）:
+ *    - SIGUSR1 には「フラグだけ更新する」最小ハンドラを登録します。
+ *      volatile sig_atomic_t 以外の共有状態には触らないのが鉄則です。
+ *    - リアルタイムシグナルにはハンドラを登録しません（SIG_DFL）。
+ *      代わりにブロックしたまま sigtimedwait(2) で「同期的に」取り出し、
+ *      siginfo_t.si_value のデータはメインスレッドで安全に収集します。
+ *      これが実用で推奨されるパターンです（→ README「発展トピック」の
+ *      sigwaitinfo / self-pipe trick も参照）。
+ *
  * 注意:
  *    macOS (Darwin) では POSIX リアルタイムシグナル / sigqueue が
  *    サポートされていないため、コンパイル時に SIGRTMIN が定義されて
@@ -50,53 +59,42 @@ int main(void) {
 #else
 
 /*
- * ハンドラから受け取ったイベントを保存する小さなリングバッファ。
- * ハンドラ内で printf するのは非同期シグナル安全ではないため、
- * イベントを貯めてメインループで一括表示します。
+ * メインスレッドで収集したリアルタイムシグナルのイベント。
+ * 非同期ハンドラからは一切触らないため、volatile 不要・競合なし。
  */
 #define MAX_EVENTS 64
 static struct {
     int sig;
     int data;
 } g_events[MAX_EVENTS];
-static volatile sig_atomic_t g_event_count = 0;
+static int g_event_count = 0;
 
 /*
- * 標準シグナル SIGUSR1 が何回配送されたか。
- * 5 回送信しても 1 回にマージされるはずです。
+ * 標準シグナル SIGUSR1 の配送回数。
+ * 非同期ハンドラから更新する唯一の変数であり、volatile sig_atomic_t に
+ * しています。5 回送信しても 1 回にマージされるはずです。
  */
 static volatile sig_atomic_t g_usr1_count = 0;
 
 /*
- * SA_SIGINFO 形式のハンドラ。
- * sigqueue() で送られたデータは info->si_value に入っています。
+ * SIGUSR1 ハンドラ。
  *
- * 注意: ハンドラ内で g_events[] と g_event_count を更新していますが、
- * これは本デモでメイン側が送信前にシグナルをブロックしているため安全です。
- * 厳密には、シグナルハンドラから非 volatile な共有オブジェクトにアクセスする
- * ことは C 規格上未定義動作の可能性があります。一般的なコンパイラでは問題に
- * なりにくいですが、実用では self-pipe trick や volatile sig_atomic_t フラグ
- * を使う方が安全です。
+ * 非同期シグナルハンドラの安全な書き方の鉄則:
+ *   - volatile sig_atomic_t 型の変数の読み書き「だけ」を行う。
+ *   - stdio (printf 等) や複雑な共有データ構造には触らない。
+ * 複数個のシグナルから届いた「データ」を処理したい場合は、ハンドラ内で
+ * 処理するのではなく、本サンプルのリアルタイムシグナルのように
+ * sigwaitinfo/sigtimedwait で同期的に受け取るか、self-pipe trick を
+ * 使ってメインループに回してください（→ 07_selfpipe.c）。
  */
-static void rt_handler(int sig, siginfo_t* info, void* ucontext) {
-    (void)ucontext;
-
-    int idx = (int)g_event_count;
-    if (idx < MAX_EVENTS) {
-        g_events[idx].sig = sig;
-        g_events[idx].data = info->si_value.sival_int;
-        g_event_count++;
-    }
-}
-
 static void usr1_handler(int sig) {
     (void)sig;
     g_usr1_count++;
 }
 
 static void print_events(void) {
-    int n = (int)g_event_count;
-    printf("Recorded %d real-time signal event(s):\n", n);
+    int n = g_event_count;
+    printf("Collected %d real-time signal event(s) via sigtimedwait:\n", n);
     for (int i = 0; i < n; i++) {
         printf("  event #%02d: signal=%d (SIGRTMIN%+d), data=%d\n", i + 1,
                g_events[i].sig, g_events[i].sig - SIGRTMIN, g_events[i].data);
@@ -114,36 +112,19 @@ int main(void) {
 
     /*
      * ============================================================
-     * ステップ 1: ハンドラ登録
+     * ステップ 1: SIGUSR1 の最小ハンドラを登録
      * ============================================================
      *
-     * リアルタイムシグナルを使うには sigaction() に SA_SIGINFO を指定し、
-     * sa_sigaction を使います。そうしないと siginfo_t の情報を
-     * 受け取れません。
+     * 標準シグナル SIGUSR1 には、フラグ（g_usr1_count）だけを更新する
+     * 安全なハンドラを登録します。SA_SIGINFO は不要です。
+     *
+     * リアルタイムシグナルにはハンドラを登録「しません」。後で
+     * sigtimedwait() で同期的に取り出すため、ブロックしたまま保留させます。
      */
     struct sigaction sa;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_SIGINFO;
-    sa.sa_sigaction = rt_handler;
-
-    /* 一方のリアルタイムシグナルハンドラ実行中は、もう一方をブロックして
-     * リングバッファの読み書きが混ざらないようにする。 */
-    sigaddset(&sa.sa_mask, SIGRTMIN);
-    sigaddset(&sa.sa_mask, SIGRTMIN + 1);
-
-    /* SIGRTMIN と SIGRTMIN+1 の 2 つを使う */
-    if (sigaction(SIGRTMIN, &sa, NULL) == -1) {
-        perror("sigaction(SIGRTMIN)");
-        exit(EXIT_FAILURE);
-    }
-    if (sigaction(SIGRTMIN + 1, &sa, NULL) == -1) {
-        perror("sigaction(SIGRTMIN+1)");
-        exit(EXIT_FAILURE);
-    }
-
-    /* 比較用に標準シグナル SIGUSR1 も登録 */
+    sa.sa_flags = 0;
     sa.sa_handler = usr1_handler;
-    sa.sa_flags = 0; /* SA_SIGINFO は不要 */
     if (sigaction(SIGUSR1, &sa, NULL) == -1) {
         perror("sigaction(SIGUSR1)");
         exit(EXIT_FAILURE);
@@ -154,14 +135,15 @@ int main(void) {
      * ステップ 2: シグナルをブロックする
      * ============================================================
      *
-     * 送信中にハンドラが走るとキューの内容が処理されてしまうため、
-     * 一旦マスクでブロックします。これは「割り込み禁止（cli）」に相当。
+     * SIGUSR1 / SIGRTMIN / SIGRTMIN+1 をすべてブロックします。これは
+     * 「割り込み禁止（cli）」に相当します。ブロック中に送信された
+     * シグナルは保留（pending）となり、後で処理されます。
      */
     sigset_t block_set, old_set;
     sigemptyset(&block_set);
+    sigaddset(&block_set, SIGUSR1);
     sigaddset(&block_set, SIGRTMIN);
     sigaddset(&block_set, SIGRTMIN + 1);
-    sigaddset(&block_set, SIGUSR1);
 
     if (sigprocmask(SIG_BLOCK, &block_set, &old_set) == -1) {
         perror("sigprocmask(SIG_BLOCK)");
@@ -174,8 +156,7 @@ int main(void) {
      * ============================================================
      *
      * SIGUSR1 は標準シグナルなので、ブロック中に 5 回到着しても
-     * 保留ビットは 1 つしか立たず、ブロック解除後にハンドラは
-     * 1 回しか呼ばれません。
+     * 保留ビットは 1 つしか立たず、後でハンドラは 1 回しか呼ばれません。
      */
     printf("\nSending SIGUSR1 5 times (standard signal, should merge)...\n");
     for (int i = 0; i < 5; i++) {
@@ -191,7 +172,8 @@ int main(void) {
      * ============================================================
      *
      * 同じ SIGRTMIN を 5 回 sigqueue すると、すべて個別にキューに
-     * 入ります。添付データもそれぞれ保持されます。
+     * 入ります。添付データもそれぞれ保持されます。これらはブロック中
+     * なので保留されたままです。
      */
     printf(
         "Sending SIGRTMIN 5 times via sigqueue (real-time, should "
@@ -215,9 +197,9 @@ int main(void) {
      *   - リアルタイムシグナル間では、番号の小さいものが先。
      *
      * ここではあえて「番号の大きい SIGRTMIN+1」を先にキューし、
-     * その後で「番号の小さい SIGRTMIN」をキューします。
-     * ブロック解除後、SIGRTMIN のイベントが SIGRTMIN+1 のイベントより
-     * 先に記録されるはずです。
+     * その後で「番号の小さい SIGRTMIN」をキューします。後で
+     * sigtimedwait で取り出すとき、SIGRTMIN のイベントが
+     * SIGRTMIN+1 のイベントより先に得られるはずです。
      */
     printf(
         "Sending SIGRTMIN+1 first, then SIGRTMIN to show priority "
@@ -241,32 +223,59 @@ int main(void) {
 
     /*
      * ============================================================
-     * ステップ 6: ブロックを解除して配送させる
+     * ステップ 6: SIGUSR1 を届けてマージを観察する
      * ============================================================
      *
-     * sigprocmask(SIG_UNBLOCK) は「割り込み許可（sti）」に相当。
-     * 保留中のシグナルが一斉に配送され、ハンドラが実行されます。
+     * SIGUSR1 だけブロック解除（「割り込み許可: sti」に相当）すると、
+     * 保留されていた SIGUSR1 が直ちに配送されハンドラが 1 回走ります。
+     * リアルタイムシグナルはまだブロックされたままです。
      */
-    printf("Unblocking signals...\n");
-    if (sigprocmask(SIG_UNBLOCK, &block_set, NULL) == -1) {
-        perror("sigprocmask(SIG_UNBLOCK)");
+    sigset_t usr1_set;
+    sigemptyset(&usr1_set);
+    sigaddset(&usr1_set, SIGUSR1);
+    if (sigprocmask(SIG_UNBLOCK, &usr1_set, NULL) == -1) {
+        perror("sigprocmask(SIG_UNBLOCK, SIGUSR1)");
         exit(EXIT_FAILURE);
     }
 
     /*
-     * ハンドラはブロック解除直後に非同期的に実行されます。
-     * すべてのハンドラが終わるのを待つため、短くスリープします。
-     * （実用的なコードでは、volatile フラグで完了を確認するなどの
-     * 方法が使われます。）
+     * ============================================================
+     * ステップ 7: リアルタイムシグナルを同期的に取り出す
+     * ============================================================
+     *
+     * sigtimedwait(2) は、指定したシグナルセットのいずれかが保留される
+     * まで待ち、1 個デキューして siginfo_t に詳細を格納します。
+     * ハンドラを経由しないため、si_value のデータも共有状態もすべて
+     * メインスレッドで安全に扱えます。
+     *
+     * - 戻り値はデキューされたシグナル番号。
+     * - タイムアウト（ここでは 100ms）で EAGAIN → 送信済みの分をすべて
+     *   処理し終えたと判断してループを抜けます。
+     * - 同番号の RT シグナルは FIFO、異なる番号間は番号の小さい方が先。
      */
-    struct timespec ts;
-    ts.tv_sec = 0;
-    ts.tv_nsec = 100000000L; /* 100 ms */
-    nanosleep(&ts, NULL);
+    sigset_t rt_set;
+    sigemptyset(&rt_set);
+    sigaddset(&rt_set, SIGRTMIN);
+    sigaddset(&rt_set, SIGRTMIN + 1);
+
+    struct timespec tmo;
+    tmo.tv_sec = 0;
+    tmo.tv_nsec = 100 * 1000000L; /* 100 ms */
+
+    while (g_event_count < MAX_EVENTS) {
+        siginfo_t info;
+        int sig = sigtimedwait(&rt_set, &info, &tmo);
+        if (sig == -1) {
+            break; /* EAGAIN: 保留済みはすべて取り出した */
+        }
+        g_events[g_event_count].sig = sig;
+        g_events[g_event_count].data = info.si_value.sival_int;
+        g_event_count++;
+    }
 
     /*
      * ============================================================
-     * ステップ 7: 結果の表示
+     * ステップ 8: 結果の表示
      * ============================================================
      */
     printf("\nSIGUSR1 handler was called %d time(s) (expected 1).\n",
@@ -276,11 +285,12 @@ int main(void) {
 
     /*
      * 期待される結果の解説:
-     *   - SIGUSR1: 5 回送信 → 1 回しか配送されない。
-     *   - SIGRTMIN: 10 回 sigqueue → 10 回すべて配送される。
-     *   - SIGRTMIN+1: 5 回 sigqueue → 5 回すべて配送される。
-     *   - イベント順序: SIGRTMIN の 10 個が SIGRTMIN+1 の 5 個より先に
-     *     記録される（番号が小さいため）。
+     *   - SIGUSR1: 5 回送信 → 1 回しか配送されない（標準シグナルのマージ）。
+     *   - SIGRTMIN: 10 回 sigqueue → 10 個すべて取り出せる。
+     *       （ステップ4 の 100..104、ステップ5 の 300..304、FIFO 順）
+     *   - SIGRTMIN+1: 5 回 sigqueue → 5 個すべて取り出せる（200..204）。
+     *   - 取り出し順序: SIGRTMIN の 10 個が SIGRTMIN+1 の 5 個より先
+     *     （番号が小さいため）。
      */
 
     printf("\nDone.\n");

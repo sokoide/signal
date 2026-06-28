@@ -66,14 +66,17 @@ static void safe_write(const char* msg) {
 /*
  * A safe signal handler for SIGALRM.
  *
- * It does only three things, all of which are async-signal-safe:
+ * It does only four things, all of which are async-signal-safe:
  *   1. Updates a volatile sig_atomic_t counter.
  *   2. Sets a volatile sig_atomic_t flag.
  *   3. Writes a short message with write().
- *   4. Rearms the timer with alarm(), also async-signal-safe.
- * Note: Although signal() is on the POSIX async-signal-safe list, its
- * behavior varies across platforms (System V one-shot vs BSD persistent).
- * Prefer sigaction() when reinstalling a handler from inside a handler.
+ *   4. Rearms the one-shot timer with alarm(), also async-signal-safe.
+ *
+ * alarm() is used here to rearm the timer because it is explicitly listed
+ * as async-signal-safe by POSIX.  The handler itself was installed with
+ * sigaction() outside of signal context; sigaction() is also
+ * async-signal-safe, but reinstalling a handler inside a handler is rarely
+ * necessary and is best avoided for clarity.
  */
 static void alarm_handler(int sig) {
     (void)sig; /* unused; silence -Wextra */

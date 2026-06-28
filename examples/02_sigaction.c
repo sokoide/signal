@@ -153,6 +153,14 @@ static void alarm_handler(int sig) {
  * SA_NODEFER handler.  We deliberately raise the same signal again while
  * the handler is executing.  With SA_NODEFER the signal is not blocked, so
  * the handler can be entered recursively before the first invocation returns.
+ *
+ * IMPORTANT: nd_depth++ / nd_depth-- works here only because the re-entry is
+ * caused by raise(), which is a *synchronous* call from within the handler.
+ * sig_atomic_t only guarantees atomicity for a single read or a single write;
+ * it does NOT make ++/-- atomic with respect to true asynchronous signal
+ * delivery.  If this handler were interrupted by an asynchronous SIGUSR1 from
+ * another source while nd_depth was being updated, the increment/decrement
+ * could race.  Do not use ++/-- on sig_atomic_t variables in real handlers.
  */
 static volatile sig_atomic_t nd_depth = 0;
 static volatile sig_atomic_t nd_raised = 0;

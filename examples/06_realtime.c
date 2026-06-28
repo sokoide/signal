@@ -1,37 +1,39 @@
 /*
- * 06_realtime.c — POSIX リアルタイムシグナルと sigqueue()
+ * 06_realtime.c — POSIX real-time signals and sigqueue()
  *
- * 標準シグナル（1〜31）とは異なり、リアルタイムシグナルは
- * 以下の 2 つの重要な特徴を持ちます。
+ * Unlike standard signals (1–31), real-time signals have two important
+ * properties:
  *
- * 1. キューイング（queuing）
- *    標準シグナルは「同じシグナルが複数回到着しても 1 つにまとめられる」
- *    （マージされる）のに対し、リアルタイムシグナルは個別にキューに
- *    入り、すべて配送されます。
+ * 1. Queuing
+ *    Standard signals are "merged": if the same signal arrives several
+ *    times while blocked, it is still pending only once.  Real-time signals
+ *    are queued individually and every delivery is made.
  *
- * 2. データ配送
- *    sigqueue(2) を使うと、整数またはポインタをシグナルに添付して
- *    送信できます。受信側は siginfo_t.si_value から取り出します。
+ * 2. Data carrying
+ *    sigqueue(2) lets you attach an integer or pointer to a signal.  The
+ *    receiver reads it from siginfo_t.si_value.
  *
- * リアルタイムシグナルの範囲:
- *    Linux: SIGRTMIN 〜 SIGRTMAX（通常 34 〜 64）
- *    番号の小さいシグナルが大きいシグナルより先に配送されます。
+ * Real-time signal range:
+ *    Linux: SIGRTMIN .. SIGRTMAX (usually 34 .. 64)
+ *    Lower-numbered signals are delivered before higher-numbered ones.
  *
- * このサンプルの設計（非同期ハンドラの安全な使い方）:
- *    - SIGUSR1 には「フラグだけ更新する」最小ハンドラを登録します。
- *      volatile sig_atomic_t 以外の共有状態には触らないのが鉄則です。
- *    - リアルタイムシグナルにはハンドラを登録しません（SIG_DFL）。
- *      代わりにブロックしたまま sigtimedwait(2) で「同期的に」取り出し、
- *      siginfo_t.si_value のデータはメインスレッドで安全に収集します。
- *      これが実用で推奨されるパターンです（→ README「発展トピック」の
- *      sigwaitinfo / self-pipe trick も参照）。
+ * Safe asynchronous-handler design used in this sample:
+ *    - SIGUSR1 has a minimal handler that only updates a flag.
+ *      The rule is: never touch shared state other than volatile
+ *      sig_atomic_t from an asynchronous handler.
+ *    - Real-time signals have no handler installed (SIG_DFL).  Instead they
+ *      are left blocked and collected synchronously with sigtimedwait(2);
+ *      siginfo_t.si_value data is then gathered safely in the main thread.
+ *      This is the pattern recommended for production code (see also the
+ *      README "Advanced Topics" section on sigwaitinfo and the self-pipe
+ *      trick).
  *
- * 注意:
- *    macOS (Darwin) では POSIX リアルタイムシグナル / sigqueue が
- *    サポートされていないため、コンパイル時に SIGRTMIN が定義されて
- *    いない場合はメッセージを出力して終了します。
+ * Note:
+ *    macOS (Darwin) does not support POSIX real-time signals or sigqueue(),
+ *    so if SIGRTMIN is not defined at compile time the program prints a
+ *    message and exits.
  *
- * ビルド:
+ * Build:
  *    cc -std=c11 -Wall -Wextra -O2 -g 06_realtime.c -o 06_realtime -lrt
  */
 
@@ -45,8 +47,8 @@
 #include <unistd.h>
 
 /*
- * リアルタイムシグナルが利用できないプラットフォーム（macOS など）では、
- * コンパイル時に分岐してメッセージを表示する。
+ * On platforms without real-time signals (e.g. macOS), branch at compile
+ * time and print an informational message.
  */
 #ifndef SIGRTMIN
 int main(void) {
@@ -59,8 +61,9 @@ int main(void) {
 #else
 
 /*
- * メインスレッドで収集したリアルタイムシグナルのイベント。
- * 非同期ハンドラからは一切触らないため、volatile 不要・競合なし。
+ * Events collected by the main thread from real-time signals.
+ * Because the asynchronous handler never touches this data, volatile is
+ * unnecessary and there is no race.
  */
 #define MAX_EVENTS 64
 static struct {
@@ -70,22 +73,23 @@ static struct {
 static int g_event_count = 0;
 
 /*
- * 標準シグナル SIGUSR1 の配送回数。
- * 非同期ハンドラから更新する唯一の変数であり、volatile sig_atomic_t に
- * しています。5 回送信しても 1 回にマージされるはずです。
+ * Delivery count for the standard signal SIGUSR1.
+ * This is the only variable updated by the asynchronous handler, so it is
+ * volatile sig_atomic_t.  Sending it five times should merge into one
+ * delivery.
  */
 static volatile sig_atomic_t g_usr1_count = 0;
 
 /*
- * SIGUSR1 ハンドラ。
+ * SIGUSR1 handler.
  *
- * 非同期シグナルハンドラの安全な書き方の鉄則:
- *   - volatile sig_atomic_t 型の変数の読み書き「だけ」を行う。
- *   - stdio (printf 等) や複雑な共有データ構造には触らない。
- * 複数個のシグナルから届いた「データ」を処理したい場合は、ハンドラ内で
- * 処理するのではなく、本サンプルのリアルタイムシグナルのように
- * sigwaitinfo/sigtimedwait で同期的に受け取るか、self-pipe trick を
- * 使ってメインループに回してください（→ 07_selfpipe.c）。
+ * Safe asynchronous signal-handler rules:
+ *   - Only read or write volatile sig_atomic_t variables.
+ *   - Do not touch stdio (printf, etc.) or complex shared data structures.
+ * If you need to process "data" attached to multiple signals, do not do it
+ * inside the handler.  Instead collect real-time signals synchronously as
+ * shown in this sample (sigwaitinfo/sigtimedwait) or use the self-pipe trick
+ * to hand the work to the main loop (see 07_selfpipe.c).
  */
 static void usr1_handler(int sig) {
     (void)sig;
@@ -112,14 +116,14 @@ int main(void) {
 
     /*
      * ============================================================
-     * ステップ 1: SIGUSR1 の最小ハンドラを登録
+     * Step 1: register the minimal SIGUSR1 handler
      * ============================================================
      *
-     * 標準シグナル SIGUSR1 には、フラグ（g_usr1_count）だけを更新する
-     * 安全なハンドラを登録します。SA_SIGINFO は不要です。
+     * SIGUSR1 gets a safe handler that only updates g_usr1_count.
+     * SA_SIGINFO is not needed here.
      *
-     * リアルタイムシグナルにはハンドラを登録「しません」。後で
-     * sigtimedwait() で同期的に取り出すため、ブロックしたまま保留させます。
+     * No handler is registered for real-time signals; they will be left
+     * blocked and collected synchronously with sigtimedwait() later.
      */
     struct sigaction sa;
     sigemptyset(&sa.sa_mask);
@@ -132,12 +136,12 @@ int main(void) {
 
     /*
      * ============================================================
-     * ステップ 2: シグナルをブロックする
+     * Step 2: block the signals of interest
      * ============================================================
      *
-     * SIGUSR1 / SIGRTMIN / SIGRTMIN+1 をすべてブロックします。これは
-     * 「割り込み禁止（cli）」に相当します。ブロック中に送信された
-     * シグナルは保留（pending）となり、後で処理されます。
+     * Block SIGUSR1, SIGRTMIN, and SIGRTMIN+1.  This is the user-space
+     * equivalent of "disabling interrupts (cli)".  Signals sent while
+     * blocked remain pending and are processed later.
      */
     sigset_t block_set, old_set;
     sigemptyset(&block_set);
@@ -152,11 +156,12 @@ int main(void) {
 
     /*
      * ============================================================
-     * ステップ 3: 標準シグナルを 5 回送信
+     * Step 3: send the standard signal five times
      * ============================================================
      *
-     * SIGUSR1 は標準シグナルなので、ブロック中に 5 回到着しても
-     * 保留ビットは 1 つしか立たず、後でハンドラは 1 回しか呼ばれません。
+     * SIGUSR1 is a standard signal, so even if it arrives five times while
+     * blocked there is only one pending bit.  Later the handler will run
+     * only once.
      */
     printf("\nSending SIGUSR1 5 times (standard signal, should merge)...\n");
     for (int i = 0; i < 5; i++) {
@@ -168,12 +173,12 @@ int main(void) {
 
     /*
      * ============================================================
-     * ステップ 4: リアルタイムシグナルを 5 回 sigqueue する
+     * Step 4: queue the real-time signal five times with sigqueue()
      * ============================================================
      *
-     * 同じ SIGRTMIN を 5 回 sigqueue すると、すべて個別にキューに
-     * 入ります。添付データもそれぞれ保持されます。これらはブロック中
-     * なので保留されたままです。
+     * Sending SIGRTMIN five times via sigqueue() creates five separate
+     * queued entries, each carrying its own data.  Because the signals are
+     * blocked, they remain pending.
      */
     printf(
         "Sending SIGRTMIN 5 times via sigqueue (real-time, should "
@@ -189,17 +194,17 @@ int main(void) {
 
     /*
      * ============================================================
-     * ステップ 5: 別のリアルタイムシグナルも送信（優先順序のデモ）
+     * Step 5: send another real-time signal (priority-order demo)
      * ============================================================
      *
-     * 配送順序のルール:
-     *   - 標準シグナル間の順序は保証されない。
-     *   - リアルタイムシグナル間では、番号の小さいものが先。
+     * Delivery order rules:
+     *   - Order among standard signals is unspecified.
+     *   - Among real-time signals, lower-numbered signals are delivered
+     *     before higher-numbered ones.
      *
-     * ここではあえて「番号の大きい SIGRTMIN+1」を先にキューし、
-     * その後で「番号の小さい SIGRTMIN」をキューします。後で
-     * sigtimedwait で取り出すとき、SIGRTMIN のイベントが
-     * SIGRTMIN+1 のイベントより先に得られるはずです。
+     * We deliberately queue the higher-numbered SIGRTMIN+1 first and then
+     * the lower-numbered SIGRTMIN.  When collected with sigtimedwait(),
+     * SIGRTMIN events should appear before SIGRTMIN+1 events.
      */
     printf(
         "Sending SIGRTMIN+1 first, then SIGRTMIN to show priority "
@@ -223,12 +228,12 @@ int main(void) {
 
     /*
      * ============================================================
-     * ステップ 6: SIGUSR1 を届けてマージを観察する
+     * Step 6: deliver SIGUSR1 and observe merging
      * ============================================================
      *
-     * SIGUSR1 だけブロック解除（「割り込み許可: sti」に相当）すると、
-     * 保留されていた SIGUSR1 が直ちに配送されハンドラが 1 回走ります。
-     * リアルタイムシグナルはまだブロックされたままです。
+     * Unblocking SIGUSR1 only (the user-space equivalent of "sti") causes
+     * the pending SIGUSR1 to be delivered immediately and the handler to run
+     * once.  Real-time signals remain blocked.
      */
     sigset_t usr1_set;
     sigemptyset(&usr1_set);
@@ -240,33 +245,34 @@ int main(void) {
 
     /*
      * ============================================================
-     * ステップ 7: リアルタイムシグナルを同期的に取り出す
+     * Step 7: collect real-time signals synchronously
      * ============================================================
      *
-     * sigtimedwait(2) は、指定したシグナルセットのいずれかが保留される
-     * まで待ち、1 個デキューして siginfo_t に詳細を格納します。
-     * ハンドラを経由しないため、si_value のデータも共有状態もすべて
-     * メインスレッドで安全に扱えます。
+     * sigtimedwait(2) waits until one of the signals in the given set is
+     * pending, dequeues a single signal, and stores details in siginfo_t.
+     * Because no handler is involved, si_value data and any shared state
+     * can be handled safely in the main thread.
      *
-     * - 戻り値はデキューされたシグナル番号。
-     * - タイムアウト（ここでは 100ms）で EAGAIN → 送信済みの分をすべて
-     *   処理し終えたと判断してループを抜けます。
-     * - 同番号の RT シグナルは FIFO、異なる番号間は番号の小さい方が先。
+     * - Return value is the dequeued signal number.
+     * - Timeout (100 ms here) with EAGAIN means no more queued signals are
+     *   pending, so we exit the loop.
+     * - Real-time signals of the same number are FIFO; across different
+     *   numbers the lower-numbered signal comes first.
      */
     sigset_t rt_set;
     sigemptyset(&rt_set);
     sigaddset(&rt_set, SIGRTMIN);
     sigaddset(&rt_set, SIGRTMIN + 1);
 
-    struct timespec tmo;
-    tmo.tv_sec = 0;
-    tmo.tv_nsec = 100 * 1000000L; /* 100 ms */
-
     while (g_event_count < MAX_EVENTS) {
+        struct timespec tmo;
+        tmo.tv_sec = 0;
+        tmo.tv_nsec = 100 * 1000000L; /* 100 ms */
+
         siginfo_t info;
         int sig = sigtimedwait(&rt_set, &info, &tmo);
         if (sig == -1) {
-            break; /* EAGAIN: 保留済みはすべて取り出した */
+            break; /* EAGAIN: all pending signals have been collected */
         }
         g_events[g_event_count].sig = sig;
         g_events[g_event_count].data = info.si_value.sival_int;
@@ -275,7 +281,7 @@ int main(void) {
 
     /*
      * ============================================================
-     * ステップ 8: 結果の表示
+     * Step 8: display results
      * ============================================================
      */
     printf("\nSIGUSR1 handler was called %d time(s) (expected 1).\n",
@@ -284,13 +290,13 @@ int main(void) {
     print_events();
 
     /*
-     * 期待される結果の解説:
-     *   - SIGUSR1: 5 回送信 → 1 回しか配送されない（標準シグナルのマージ）。
-     *   - SIGRTMIN: 10 回 sigqueue → 10 個すべて取り出せる。
-     *       （ステップ4 の 100..104、ステップ5 の 300..304、FIFO 順）
-     *   - SIGRTMIN+1: 5 回 sigqueue → 5 個すべて取り出せる（200..204）。
-     *   - 取り出し順序: SIGRTMIN の 10 個が SIGRTMIN+1 の 5 個より先
-     *     （番号が小さいため）。
+     * Expected results:
+     *   - SIGUSR1: sent 5 times -> delivered once (standard-signal merging).
+     *   - SIGRTMIN: 10 sigqueue calls -> all 10 events collected.
+     *       (100..104 from step 4, 300..304 from step 5, FIFO order)
+     *   - SIGRTMIN+1: 5 sigqueue calls -> all 5 events collected (200..204).
+     *   - Collection order: the 10 SIGRTMIN events come before the 5
+     *     SIGRTMIN+1 events (because SIGRTMIN has the smaller number).
      */
 
     printf("\nDone.\n");

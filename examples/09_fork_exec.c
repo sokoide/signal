@@ -30,7 +30,18 @@
  * the post-exec state can be inspected inside the same binary.
  */
 
-#define _GNU_SOURCE
+#if (defined(__APPLE__) && defined(__MACH__))
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700 /* macOS: keep feature-test macros conservative */
+#endif
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE
+#endif
+#else
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE /* Linux: for GNU extensions if required */
+#endif
+#endif
 
 #include <signal.h>
 #include <stdio.h>

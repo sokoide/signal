@@ -39,9 +39,16 @@
  * readable when a signal arrives.  It is cleaner but Linux-specific.
  * The self-pipe trick is fully POSIX and works on macOS, *BSD, etc.
  *
- * Build:  cc -std=c11 -Wall -Wextra -O2 -g examples/07_selfpipe.c -o
- * 07_selfpipe Run:    ./07_selfpipe Test:   Press Ctrl-C (SIGINT) or send
- * SIGTERM from another terminal.
+ * Build:
+ *   cc -std=c11 -Wall -Wextra -O2 -g examples/07_selfpipe.c -o 07_selfpipe
+ *
+ * Run:
+ *   ./07_selfpipe
+ *
+ * Test:
+ *   Press Ctrl-C (SIGINT) or send SIGTERM from another terminal:
+ *     kill -INT  <pid>
+ *     kill -TERM <pid>
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -71,6 +78,10 @@ static volatile sig_atomic_t selfpipe_overflow_count = 0;
  * byte and handle the signal in normal context.
  */
 static void selfpipe_handler(int sig) {
+    /* Save errno because write() may change it, and the interrupted code
+     * might be checking errno when the signal arrived. */
+    int saved_errno = errno;
+
     /* The signal number fits in one byte (signals are 1-31 for standard
      * signals, and up to 64 on Linux for real-time signals). */
     unsigned char c = (unsigned char)sig;
@@ -86,6 +97,8 @@ static void selfpipe_handler(int sig) {
     if (write(selfpipe[1], &c, 1) == -1 && errno == EAGAIN) {
         selfpipe_overflow_count++;
     }
+
+    errno = saved_errno;
 }
 
 /*
@@ -114,12 +127,19 @@ static int register_selfpipe_signal(int sig) {
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = selfpipe_handler;
 
-    /* Block the same signal while the handler runs.  This is the default
-     * behavior even without SA_NODEFER, but being explicit is educational. */
+    /* Block all self-pipe signals while any self-pipe handler runs.
+     * This serializes access to selfpipe[1] and selfpipe_overflow_count:
+     * the SIGINT handler cannot be interrupted by SIGTERM (and vice versa),
+     * so the non-atomic ++ on selfpipe_overflow_count is safe in practice.
+     * Blocking the signal itself is also the default, but being explicit is
+     * educational. */
     if (sigemptyset(&sa.sa_mask) == -1) {
         return -1;
     }
-    if (sigaddset(&sa.sa_mask, sig) == -1) {
+    if (sigaddset(&sa.sa_mask, SIGINT) == -1) {
+        return -1;
+    }
+    if (sigaddset(&sa.sa_mask, SIGTERM) == -1) {
         return -1;
     }
 

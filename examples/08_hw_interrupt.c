@@ -322,7 +322,11 @@ int main(void) {
      * Because ITIMER_VIRTUAL only counts user CPU time, this loop will
      * accumulate virtual time and trigger SIGVTALRM repeatedly.
      * The handler runs asynchronously, just like a hardware ISR.
+     *
+     * We keep main-loop chatter to a minimum so the register dump inside the
+     * handler remains the focal point of the demo.
      */
+    sig_atomic_t last_count = 0;
     while (interrupt_count < MAX_INTERRUPTS) {
         /* A tiny amount of work so the loop does not optimize away. */
         volatile unsigned long counter = 0;
@@ -330,14 +334,14 @@ int main(void) {
             ++counter;
         }
 
-        /*
-         * This printf runs in normal context, between timer interrupts.
-         * It shows that the main program continues as if nothing happened,
-         * while the signal handler fires in between iterations.
-         */
-        printf("[main loop] still running, interrupts so far = %d\n",
-               (int)interrupt_count);
-        fflush(stdout);
+        /* Print only when the interrupt count changes, so the handler's
+         * PC/SP/FP dump stands out. */
+        if (interrupt_count != last_count) {
+            last_count = interrupt_count;
+            printf("[main loop] interrupts so far = %d\n",
+                   (int)interrupt_count);
+            fflush(stdout);
+        }
     }
 
     /*

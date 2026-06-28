@@ -1,42 +1,55 @@
 /*
- * 05_altstack.c — 代替シグナルスタック sigaltstack() と SA_ONSTACK
+ * 05_altstack.c — Alternate signal stack: sigaltstack() and SA_ONSTACK
  *
- * 通常、シグナルハンドラはプロセスの通常スタック上で実行されます。
- * しかし、通常スタックがすでに枯渇している場合（例: 無限再帰による
- * スタックオーバーフロー）、SIGSEGV ハンドラを実行するスタック領域が
- * 残っていないため、ハンドラ自身もクラッシュしてしまいます。
+ * Normally a signal handler runs on the process's regular stack.  If that
+ * stack is already exhausted (for example by infinite recursion), there is
+ * no stack space left to run a SIGSEGV handler, so the handler itself
+ * crashes.
  *
- * sigaltstack() は「シグナル専用の別スタック」を用意する仕組みです。
- * これを SA_ONSTACK フラグと組み合わせると、特定のハンドラを
- * あらかじめ確保したメモリ領域上で実行できます。
+ * sigaltstack() provides a separate stack reserved for signal handlers.
+ * Combined with the SA_ONSTACK flag, it lets a specific handler run on a
+ * pre-allocated memory region instead of the regular stack.
  *
- * これは OS カーネルが「割り込み用カーネルスタック」を持つのと
- * 同じ設計思想です。HW 割り込みが発生した際、CPU はカーネルスタックに
- * 切り替えて ISR を実行します。sigaltstack はそのユーザ空間版です。
+ * This is the same design idea as the OS kernel keeping an "interrupt
+ * stack" for hardware interrupts: when a HW interrupt occurs, the CPU
+ * switches to the kernel stack to run the ISR.  sigaltstack is the
+ * user-space version of that mechanism.
  *
- * ビルド:
+ * Build:
  *   cc -std=c11 -Wall -Wextra -O2 -g 05_altstack.c -o 05_altstack
  *
- * 注意:
- *   macOS では SIGSTKSZ の定義に _DARWIN_C_SOURCE が必要な場合があります。
- *   本リポジトリの Makefile では自動的に追加しています。
+ * Note:
+ *   On macOS the definition of SIGSTKSZ may require _DARWIN_C_SOURCE.
+ *   This repository's Makefile adds it automatically.
  */
 
-#define _GNU_SOURCE
+#if (defined(__APPLE__) && defined(__MACH__))
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700 /* macOS: required by <ucontext.h> */
+#endif
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE
+#endif
+#else
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE /* Linux: sigaltstack extensions if needed */
+#endif
+#endif
 
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
-/* 代替シグナルスタック用に malloc したメモリを保持し、エラー経路で解放する。 */
+/* Holds the malloc'd alternate stack memory so we can free it on clean paths. */
 static void* alt_stack_mem = NULL;
 
 /*
- * シグナルハンドラ内から呼べる、固定長のメッセージ書き込みヘルパー。
- * write(2) は async-signal-safe なので、ハンドラ内で使えます。
- * printf() は内部ロックを保持する可能性があるため、ハンドラ内では禁止です。
+ * Fixed-length message write helper callable from inside a signal handler.
+ * write(2) is async-signal-safe, so it can be used in a handler.
+ * printf() may hold internal locks, so it is forbidden inside handlers.
  */
 static void safe_puts(const char* s) {
     size_t len = 0;
@@ -48,15 +61,15 @@ static void safe_puts(const char* s) {
 }
 
 /*
- * SIGSEGV ハンドラ。
+ * SIGSEGV handler.
  *
- * 通常のスタックがオーバーフローしている状況で呼ばれるため、
- * このハンドラは SA_ONSTACK によって代替スタック上で実行されます。
+ * Because the normal stack may be overflowed when this runs, the handler
+ * is executed on the alternate stack thanks to SA_ONSTACK.
  *
- * ハンドラ内では以下のことを行います:
- *   1. 到達したシグナル名を表示
- *   2. sigaltstack() で現在代替スタック上にいるか確認
- *   3. 安全にプロセスを終了 (_exit)
+ * Inside the handler we:
+ *   1. Print the delivered signal name.
+ *   2. Use sigaltstack() to verify we are actually on the alternate stack.
+ *   3. Terminate the process safely with _exit().
  */
 static void segv_handler(int sig, siginfo_t* info, void* ucontext) {
     (void)sig;
@@ -66,9 +79,10 @@ static void segv_handler(int sig, siginfo_t* info, void* ucontext) {
     safe_puts("\n[Caught SIGSEGV in handler]\n");
 
     /*
-     * sigaltstack(NULL, &current) で現在の代替スタック情報を取得します。
-     * ハンドラ実行中に呼ぶと、ss_flags に SS_ONSTACK がセットされています。
-     * これが 1 なら、ハンドラは確かに代替スタック上で動作しています。
+     * sigaltstack(NULL, &current) retrieves the current alternate stack info.
+     * When called while a handler is running on the alternate stack, the
+     * SS_ONSTACK flag is set in ss_flags.  A value of 1 confirms the handler
+     * is indeed running on the alternate stack.
      */
     stack_t current;
     if (sigaltstack(NULL, &current) == -1) {
@@ -82,78 +96,72 @@ static void segv_handler(int sig, siginfo_t* info, void* ucontext) {
     }
 
     /*
-     * ハンドラ内でプロセスを終了するときは _exit(2) を使います。
-     * exit(3) は stdio バッファをフラッシュしたり atexit ハンドラを
-     * 呼んだりするため、非同期シグナル安全ではありません。
+     * Use _exit(2) to terminate the process from inside a handler.
+     * exit(3) flushes stdio buffers and runs atexit handlers, so it is not
+     * async-signal-safe.
      */
     safe_puts("  Calling _exit(128 + SIGSEGV) safely...\n");
     _exit(128 + SIGSEGV);
 }
 
 /*
- * スタックオーバーフローを意図的に引き起こす再帰関数。
+ * Helper that touches a few bytes of a stack-allocated buffer.
  *
- * 各呼び出しで大きなローカル配列を確保し、再帰を深く掘っていきます。
- * コンパイラが末尾呼び出し最適化（tail-call optimization）を
- * 行うのを防ぐため、再帰呼び出しの後にダミーのコードを置いています。
+ * It is marked noinline so the compiler cannot collapse the recursive
+ * calls in overflow() into a single reused buffer.  Passing the address
+ * of each invocation's local array forces the compiler to allocate the
+ * full buffer on the stack for every call, which is what makes the
+ * stack-overflow demo reliable at -O2.
+ */
+static void touch_stack(volatile char* p, size_t len) __attribute__((noinline));
+static void touch_stack(volatile char* p, size_t len) {
+    p[0] = 1;
+    p[len / 2] = 2;
+    p[len - 1] = 3;
+}
+
+/*
+ * Recursive function that intentionally causes a stack overflow.
  *
- * counter を volatile にしておくことで、最適化によって
- * 配列アクセスや再帰が削除されるのを防ぎます。
+ * Each call allocates an 8 KiB local array and recurses deeply.  The
+ * noinline helper above prevents the compiler from optimizing away the
+ * per-call allocation at -O2.  A write after the recursive call keeps
+ * the call from being tail-call optimized.
  */
 static volatile int g_depth = 0;
 
-/*
- * スタックオーバーフローを引き起こす再帰関数。
- *
- * 呼び出し回数を引数 n で制御できるように見せかけていますが、
- * main() からは十分大きな値を渡すため、実際にはスタックを使い果たして
- * SIGSEGV を起こします。
- *
- * コンパイラに「無限再帰」と警告されないよう、終了条件を明示しています。
- */
 static void overflow(int n) {
-    /*
-     * 1 回の呼び出しで 8KiB のスタックを消費。
-     * volatile を付け、かつ複数箇所に書き込むことで、
-     * コンパイラがこの配列をレジスタ化・削除するのを防ぎます。
-     */
     volatile char frame[8192];
 
-    frame[0] = (char)n;
-    frame[4095] = (char)(n >> 8);
-    frame[8191] = (char)(n >> 16);
+    touch_stack(frame, sizeof(frame));
     g_depth++;
-    /* Suppress unused variable warning: frame exists to consume stack */
-    (void)frame;
 
     if (n > 0) {
         overflow(n - 1);
     }
 
-    /* 到達しないが、末尾呼び出し最適化を防ぐ */
+    /* Never reached, but prevents tail-call optimization. */
     frame[1] = 1;
 }
 
 int main(void) {
     /*
      * ============================================================
-     * ステップ 1: 代替スタックの確保
+     * Step 1: allocate the alternate stack
      * ============================================================
      *
-     * SIGSTKSZ は「通常のシグナルハンドラを実行するのに十分な」
-     * サイズです。MINSIGSTKSZ より小さくすることはできません。
+     * SIGSTKSZ is a size "typically sufficient" for running a signal
+     * handler.  It must not be smaller than MINSIGSTKSZ.
      *
-     * 実際のアプリケーションでは、ハンドラが使うスタック量に応じて
-     * SIGSTKSZ より大きな領域を確保してください。ここではデモ用に SIGSTKSZ を
-     * 使います。
+     * In real applications, allocate more than SIGSTKSZ according to the
+     * stack usage of your handler.  Here we use SIGSTKSZ for the demo.
      */
     stack_t ss;
-    /* SIGSTKSZ は代替スタックに推奨される典型的なサイズです。
-     * glibc >= 2.34 では非定数式になる場合があり、その場合は sysconf() 等で
-     * 動的にサイズを決める必要があります。ここではデモ用に SIGSTKSZ
-     * を使います。
-     * 本番アプリケーションでは、ハンドラのスタック使用量に応じて余裕を持たせて
-     * ください。 */
+    /* SIGSTKSZ is the typical recommended size for an alternate stack.
+     * On glibc >= 2.34 it may be a non-constant expression; on those
+     * systems you may need to determine the size dynamically with
+     * sysconf().  We use SIGSTKSZ directly for this demo.
+     * In production, leave margin according to the handler's stack usage. */
     ss.ss_size = SIGSTKSZ;
     alt_stack_mem = malloc(ss.ss_size);
     if (alt_stack_mem == NULL) {
@@ -161,7 +169,7 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
     ss.ss_sp = alt_stack_mem;
-    ss.ss_flags = 0; /* SS_DISABLE ではなく有効にする */
+    ss.ss_flags = 0; /* enable, not SS_DISABLE */
 
     if (sigaltstack(&ss, NULL) == -1) {
         perror("sigaltstack");
@@ -174,16 +182,16 @@ int main(void) {
 
     /*
      * ============================================================
-     * ステップ 2: SIGSEGV ハンドラを SA_ONSTACK で登録
+     * Step 2: register the SIGSEGV handler with SA_ONSTACK
      * ============================================================
      *
-     * sa_flags に SA_ONSTACK を含めると、このハンドラは
-     * 通常スタックではなく sigaltstack() で指定した代替スタック上で
-     * 実行されます。
+     * Including SA_ONSTACK in sa_flags causes this handler to run on the
+     * alternate stack allocated by sigaltstack() instead of the regular
+     * stack.
      *
-     * また SA_SIGINFO を指定すると、ハンドラは
+     * Adding SA_SIGINFO gives the handler the three-argument form
      *   void handler(int sig, siginfo_t *info, void *ucontext)
-     * の 3 引数形式になり、より詳細な情報にアクセスできます。
+     * so more detailed information is available.
      */
     struct sigaction sa;
     sa.sa_sigaction = segv_handler;
@@ -198,27 +206,70 @@ int main(void) {
 
     printf("SIGSEGV handler installed with SA_ONSTACK.\n");
     printf("Now triggering stack overflow via deep recursion...\n");
-    fflush(stdout); /* main コンテキストなので printf → fflush は安全 */
+    fflush(stdout); /* printf + fflush is safe in main context */
 
     /*
      * ============================================================
-     * ステップ 3: スタックオーバーフローを引き起こす
+     * Step 2b: lower the main stack soft limit
      * ============================================================
      *
-     * overflow() は再帰的に大きなローカル配列を確保し続け、
-     * 最終的に通常スタックを使い果たします。
-     * その結果 CPU は不正メモリアクセスを検出し、カーネルは SIGSEGV を
-     * プロセスに送ります。
+     * The default RLIMIT_STACK soft limit varies widely between
+     * environments (for example, 8 MiB on many Linux systems and 64 MiB
+     * under make on macOS).  With a large limit, overflow() can recurse
+     * deeply enough to satisfy its termination condition before the
+     * regular stack is exhausted, so the program would reach the line
+     * "This line should never be printed."
      *
-     * もし代替スタックを使わなければ、SIGSEGV ハンドラを呼ぶための
-     * スタックが残っておらず、ハンドラ自身で再び SIGSEGV を起こして
-     * プロセスが即座に異常終了してしまいます。
+     * To make the alternate-stack demo reliable, lower the soft limit to
+     * a small, known value before invoking overflow().  This guarantees
+     * that the regular stack runs out of space and SIGSEGV is delivered
+     * before the recursive function returns.
+     */
+    {
+        const rlim_t desired_stack = 1024 * 1024; /* 1 MiB */
+        struct rlimit rl;
+
+        if (getrlimit(RLIMIT_STACK, &rl) == -1) {
+            perror("getrlimit(RLIMIT_STACK)");
+            free(alt_stack_mem);
+            exit(EXIT_FAILURE);
+        }
+
+        if (rl.rlim_max != RLIM_INFINITY && rl.rlim_max < desired_stack) {
+            rl.rlim_cur = rl.rlim_max;
+        } else {
+            rl.rlim_cur = desired_stack;
+        }
+
+        if (setrlimit(RLIMIT_STACK, &rl) == -1) {
+            perror("setrlimit(RLIMIT_STACK)");
+            free(alt_stack_mem);
+            exit(EXIT_FAILURE);
+        }
+
+        printf("Main stack soft limit lowered to %llu bytes.\n",
+               (unsigned long long)rl.rlim_cur);
+        fflush(stdout);
+    }
+
+    /*
+     * ============================================================
+     * Step 3: trigger a stack overflow
+     * ============================================================
+     *
+     * overflow() keeps allocating large local arrays recursively until the
+     * regular stack is exhausted.  The CPU then detects an invalid memory
+     * access and the kernel sends SIGSEGV to the process.
+     *
+     * Without an alternate stack, there would be no stack space left to
+     * invoke the SIGSEGV handler, and the handler itself would raise another
+     * SIGSEGV, killing the process immediately.
      */
     overflow(1000000);
 
     /*
-     * ここには到達しません（overflow() はクラッシュするか、
-     * ハンドラ内で _exit() されるため）。
+     * This point is never reached (overflow() either crashes or _exit() is
+     * called inside the handler).
      */
     printf("This line should never be printed.\n");
     free(alt_stack_mem);

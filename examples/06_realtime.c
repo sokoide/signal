@@ -90,6 +90,17 @@ static volatile sig_atomic_t g_usr1_count = 0;
  * inside the handler.  Instead collect real-time signals synchronously as
  * shown in this sample (sigwaitinfo/sigtimedwait) or use the self-pipe trick
  * to hand the work to the main loop (see 07_selfpipe.c).
+ *
+ * Why g_usr1_count++ is acceptable HERE (and only here):
+ * Normally a read-modify-write like "++" on a sig_atomic_t is NOT atomic
+ * with respect to an asynchronous signal (see the detailed comment in
+ * 02_sigaction.c).  However, in *this* sample SIGUSR1 is sent five times
+ * while blocked, so it is merged into a single pending bit by the kernel.
+ * When the signal is unblocked, the handler runs exactly once — there is
+ * never a second concurrent invocation.  SA_NODEFER is not used, so the
+ * handler cannot re-enter itself either.  The single ++ is therefore safe
+ * in practice.  Do NOT copy this into a handler that can be called more
+ * than once or concurrently.
  */
 static void usr1_handler(int sig) {
     (void)sig;

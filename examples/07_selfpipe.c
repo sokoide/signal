@@ -168,11 +168,20 @@ int main(void) {
     }
 
     /*
-     * Step 2: make the write end non-blocking.
-     * Without this, a signal storm could block the handler forever.
+     * Step 2: make both ends of the pipe non-blocking.
+     * Write end: a signal storm must not block the handler forever.
+     * Read end:  the drain loop below calls read() repeatedly until the pipe
+     * is empty; with a blocking read end, an empty pipe would block the main
+     * loop.  Non-blocking lets us drain until EAGAIN.
      */
     if (set_nonblocking(selfpipe[1]) == -1) {
-        perror("fcntl O_NONBLOCK");
+        perror("fcntl O_NONBLOCK (write end)");
+        close(selfpipe[0]);
+        close(selfpipe[1]);
+        return EXIT_FAILURE;
+    }
+    if (set_nonblocking(selfpipe[0]) == -1) {
+        perror("fcntl O_NONBLOCK (read end)");
         close(selfpipe[0]);
         close(selfpipe[1]);
         return EXIT_FAILURE;

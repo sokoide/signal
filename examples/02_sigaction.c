@@ -154,23 +154,13 @@ static void alarm_handler(int sig) {
  * the handler is executing.  With SA_NODEFER the signal is not blocked, so
  * the handler can be entered recursively before the first invocation returns.
  *
- * Why nd_depth++ / nd_depth-- is safe HERE (and only here):
- * The recursive entry below is triggered by raise(), which is a *synchronous*
- * call made from within this handler.  The second invocation runs to
- * completion and returns before raise() itself returns, so the two
- * invocations never access nd_depth concurrently -- the re-entrancy is fully
- * sequential, not truly asynchronous.  That is the only reason a compound
- * read-modify-write on a sig_atomic_t is acceptable in this demo.
- *
- * Why you must NOT copy this ++/-- pattern into a real async handler:
- * sig_atomic_t only guarantees that a single read or a single write is atomic.
- * "nd_depth++" is read-modify-write and is NOT atomic with respect to a signal
- * that may arrive asynchronously at any moment from another source.  If an
- * async SIGUSR1 could interrupt this handler between the read and the write of
- * the increment, one update would be lost and nd_depth would drift.  So: use
- * this demo only to observe the SA_NODEFER re-entrancy behavior.  In
- * production handlers, restrict yourself to a single read or a single write of
- * a sig_atomic_t variable, or use C11 <stdatomic.h> for compound operations.
+ * Why the ++/-- on nd_depth is safe here: the recursive entry is triggered by
+ * raise(), which is a *synchronous* call inside this handler.  The second
+ * invocation runs to completion and returns before raise() returns, so the two
+ * invocations never touch nd_depth concurrently — the re-entrancy is fully
+ * sequential.  This is a deliberate exception to the "no read-modify-write in
+ * async handlers" rule (see README "非同期シグナル安全性").  In production
+ * code prefer a single read/write of a sig_atomic_t, or C11 <stdatomic.h>.
  */
 static volatile sig_atomic_t nd_depth = 0;
 static volatile sig_atomic_t nd_raised = 0;
@@ -206,13 +196,16 @@ static void nodefer_handler(int sig, siginfo_t* info, void* ucontext) {
  * after this handler returns, so the second raise() will use the default
  * action instead of calling us again.  We use SIGCHLD because its default
  * action is to ignore the signal, which keeps the program alive.
+ *
+ * A single assignment (not ++) is enough here: SA_RESETHAND means the handler
+ * runs exactly once, so we just record that it fired.
  */
-static volatile sig_atomic_t rese_count = 0;
+static volatile sig_atomic_t rese_handled = 0;
 
 static void rese_handler(int sig) {
     (void)sig;
 
-    rese_count++;
+    rese_handled = 1;
     safe_write_str(
         "[SA_RESETHAND] SIGCHLD handled (this should run exactly once)\n");
 }
@@ -373,12 +366,12 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
-    rese_count = 0;
+    rese_handled = 0;
     raise(SIGCHLD); /* handler runs */
     raise(SIGCHLD); /* default action: ignored */
 
-    printf("Main: rese_count=%d (should be 1 because handler was reset)\n",
-           (int)rese_count);
+    printf("Main: rese_handled=%d (should be 1 because handler was reset)\n",
+           (int)rese_handled);
     fflush(stdout);
 
     /* ================================================================

@@ -39,6 +39,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -274,6 +275,9 @@ int main(void) {
         siginfo_t info;
         int sig = sigtimedwait(&rt_set, &info, &tmo);
         if (sig == -1) {
+            if (errno == EINTR) {
+                continue; /* interrupted by an unblocked signal: retry */
+            }
             break; /* EAGAIN: all pending signals have been collected */
         }
         g_events[g_event_count].sig = sig;

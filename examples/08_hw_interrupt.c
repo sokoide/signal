@@ -54,15 +54,23 @@
  */
 
 /*
- * _GNU_SOURCE is needed for ucontext_t and register macros (gregs, REG_RIP, etc.)
- * on Linux systems.
- * _DARWIN_C_SOURCE ensures SIGSTKSZ / ucontext on older macOS versions.
+ * macOS: <ucontext.h> requires _XOPEN_SOURCE (the routines are deprecated and
+ *   gated behind that macro). _DARWIN_C_SOURCE ensures SIGSTKSZ / ucontext on
+ *   older macOS versions.
+ * Linux: _GNU_SOURCE is needed for ucontext_t and the register macros
+ *   (gregs, REG_RIP, etc.) exposed by <sys/ucontext.h>.
  */
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
+#if (defined(__APPLE__) && defined(__MACH__))
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700
 #endif
 #ifndef _DARWIN_C_SOURCE
 #define _DARWIN_C_SOURCE
+#endif
+#else
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #endif
 
 #include <signal.h>

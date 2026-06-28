@@ -73,12 +73,14 @@ static struct {
 static int g_event_count = 0;
 
 /*
- * Delivery count for the standard signal SIGUSR1.
+ * Delivery flag for the standard signal SIGUSR1.
  * This is the only variable updated by the asynchronous handler, so it is
- * volatile sig_atomic_t.  Sending it five times should merge into one
- * delivery.
+ * volatile sig_atomic_t.  A single assignment (write) is exactly what
+ * sig_atomic_t guarantees to be safe — no read-modify-write here.
+ * Sending it five times while blocked merges into one pending bit and the
+ * handler runs once, setting this flag.
  */
-static volatile sig_atomic_t g_usr1_count = 0;
+static volatile sig_atomic_t g_usr1_received = 0;
 
 /*
  * SIGUSR1 handler.
@@ -90,21 +92,10 @@ static volatile sig_atomic_t g_usr1_count = 0;
  * inside the handler.  Instead collect real-time signals synchronously as
  * shown in this sample (sigwaitinfo/sigtimedwait) or use the self-pipe trick
  * to hand the work to the main loop (see 07_selfpipe.c).
- *
- * Why g_usr1_count++ is acceptable HERE (and only here):
- * Normally a read-modify-write like "++" on a sig_atomic_t is NOT atomic
- * with respect to an asynchronous signal (see the detailed comment in
- * 02_sigaction.c).  However, in *this* sample SIGUSR1 is sent five times
- * while blocked, so it is merged into a single pending bit by the kernel.
- * When the signal is unblocked, the handler runs exactly once — there is
- * never a second concurrent invocation.  SA_NODEFER is not used, so the
- * handler cannot re-enter itself either.  The single ++ is therefore safe
- * in practice.  Do NOT copy this into a handler that can be called more
- * than once or concurrently.
  */
 static void usr1_handler(int sig) {
     (void)sig;
-    g_usr1_count++;
+    g_usr1_received = 1;
 }
 
 static void print_events(void) {
@@ -130,7 +121,7 @@ int main(void) {
      * Step 1: register the minimal SIGUSR1 handler
      * ============================================================
      *
-     * SIGUSR1 gets a safe handler that only updates g_usr1_count.
+     * SIGUSR1 gets a safe handler that only sets the g_usr1_received flag.
      * SA_SIGINFO is not needed here.
      *
      * No handler is registered for real-time signals; they will be left
@@ -295,14 +286,15 @@ int main(void) {
      * Step 8: display results
      * ============================================================
      */
-    printf("\nSIGUSR1 handler was called %d time(s) (expected 1).\n",
-           (int)g_usr1_count);
+    printf("\nSIGUSR1 %s (sent 5 times, merged into a single delivery).\n",
+           g_usr1_received ? "was delivered" : "was NOT delivered");
 
     print_events();
 
     /*
      * Expected results:
-     *   - SIGUSR1: sent 5 times -> delivered once (standard-signal merging).
+     *   - SIGUSR1: sent 5 times -> merged into one delivery (g_usr1_received
+     *     set once; standard-signal merging).
      *   - SIGRTMIN: 10 sigqueue calls -> all 10 events collected.
      *       (100..104 from step 4, 300..304 from step 5, FIFO order)
      *   - SIGRTMIN+1: 5 sigqueue calls -> all 5 events collected (200..204).

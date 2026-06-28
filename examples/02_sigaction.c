@@ -158,9 +158,15 @@ static void alarm_handler(int sig) {
  * raise(), which is a *synchronous* call inside this handler.  The second
  * invocation runs to completion and returns before raise() returns, so the two
  * invocations never touch nd_depth concurrently — the re-entrancy is fully
- * sequential.  This is a deliberate exception to the "no read-modify-write in
- * async handlers" rule (see README "非同期シグナル安全性").  In production
- * code prefer a single read/write of a sig_atomic_t, or C11 <stdatomic.h>.
+ * sequential.
+ *
+ * IMPORTANT precondition: this argument assumes no *external* asynchronous
+ * SIGUSR1 arrives while the handler runs.  This demo delivers SIGUSR1 only via
+ * raise() from main(), never from outside the process.  Because SA_NODEFER
+ * leaves the signal unblocked, an externally-sent SIGUSR1 could enter the
+ * handler truly concurrently and race on nd_depth.  In production code, prefer
+ * a single read/write of a sig_atomic_t, or C11 <stdatomic.h>, so that the
+ * safety does not depend on this precondition (see README "非同期シグナル安全性").
  */
 static volatile sig_atomic_t nd_depth = 0;
 static volatile sig_atomic_t nd_raised = 0;

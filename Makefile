@@ -48,16 +48,13 @@ run: $(BINS)
 	@timeout 3 ./03_blocking || true
 	@echo ""
 	@echo "=== Running 04_timer ==="
-	@timeout 3 ./04_timer || true
+	@timeout 8 ./04_timer || true
 	@echo ""
 	@echo "=== Running 05_altstack ==="
 	@timeout 3 ./05_altstack || true
 	@echo ""
 	@echo "=== Running 06_realtime ==="
 	@timeout 3 ./06_realtime || true
-	@echo ""
-	@echo "=== Running 07_selfpipe ==="
-	@timeout 3 ./07_selfpipe || true
 	@echo ""
 	@echo "=== Running 08_hw_interrupt ==="
 	@timeout 3 ./08_hw_interrupt || true
@@ -66,9 +63,22 @@ run: $(BINS)
 	@timeout 3 ./09_fork_exec || true
 	@echo ""
 	@echo "=== Running 10_signal_safety ==="
-	@timeout 3 ./10_signal_safety || true
+	@timeout 8 ./10_signal_safety || true
 	@echo ""
 	@echo "=== All examples completed ==="
+	@echo ""
+	@echo "Note: 07_selfpipe is interactive (select() event loop)."
+	@echo "      Run it manually:  make run-interactive   or   ./07_selfpipe"
+
+# Interactive samples that block waiting for terminal input or external
+# signals.  They cannot be auto-run by `make run`; launch them manually and
+# send signals (Ctrl-C / kill -INT / kill -TERM) from another terminal.
+run-interactive: 07_selfpipe
+	@echo "=== 07_selfpipe (interactive) ==="
+	@echo "PID will be printed by the program. From another terminal:"
+	@echo "  kill -INT  <pid>     kill -TERM <pid>"
+	@echo "Press Ctrl-C in this terminal to stop."
+	@./07_selfpipe || true
 
 format:
 	@echo "Formatting all .c and .h files..."
@@ -79,4 +89,4 @@ clean:
 	rm -f $(BINS)
 	rm -rf *.dSYM
 
-.PHONY: all format clean run
+.PHONY: all format clean run run-interactive

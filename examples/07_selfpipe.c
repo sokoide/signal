@@ -94,7 +94,13 @@ static void selfpipe_handler(int sig) {
      *
      * This is an inherent limitation of the self-pipe pattern.
      * The Linux-specific signalfd(2) avoids this issue. */
-    if (write(selfpipe[1], &c, 1) == -1 && errno == EAGAIN) {
+    /* Retry on EINTR (another, non-blocked signal interrupted the write).
+     * Only EAGAIN — the pipe buffer is full — counts as a genuine drop. */
+    ssize_t ret;
+    do {
+        ret = write(selfpipe[1], &c, 1);
+    } while (ret == -1 && errno == EINTR);
+    if (ret == -1 && errno == EAGAIN) {
         selfpipe_overflow_count++;
     }
 

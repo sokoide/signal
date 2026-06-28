@@ -365,6 +365,8 @@ void handler(int sig, siginfo_t *info, void *ucontext) {
 }
 ```
 
+> 上記は概念の抜粋です。実際の `02_sigaction.c` は `SIGUSR1` を使い、`raise()` で同期配送しつつ `SA_NODEFER`（同一シグナルの再入を許可）と `SA_RESETHAND`（1 回限り）の効果も実演します。
+
 ### 03_blocking — シグナルマスク（= 割り込み禁止）
 
 ```c
@@ -774,7 +776,7 @@ int main() {
 | `signal()` 動作               | BSD セマンティクス（永続）  | BSD セマンティクス（永続）                        |
 | `ucontext_t` の `uc_mcontext` | 埋め込み構造体（glibc）     | **ポインタ**（`mcontext_t` への）                 |
 | `ucontext_t` / `setcontext`   | 利用可能                    | 利用可能だが POSIX.1-2008 では removed（廃止）    |
-| リアルタイムシグナル範囲      | `SIGRTMIN` = 34（可変）     | サポートされているが実装依存                      |
+| リアルタイムシグナル範囲      | `SIGRTMIN` = 34（可変）     | **未サポート**（`SIGRTMIN`/`SIGRTMAX`/`sigqueue` なし。06_realtime は Linux 専用） |
 | `signal.h` vs `sys/signal.h`  | `signal.h` で十分           | `sys/signal.h` が古い API も提供                  |
 | `timer_create` 精度           | hrtimer 基盤（ns 精度）     | kqueue タイマ（µs 精度）                          |
 | `signalfd`                    | 利用可能                    | **存在しない**（self-pipe trick 使用）            |
@@ -857,6 +859,8 @@ TOCTOU（Time-of-Check to Time-of-Use: 条件をチェックしてからそれ�
 ### スレッドとシグナル: `pthread_sigmask` / `pthread_kill`
 
 マルチスレッドプログラムでは、プロセス全体ではなく「ターゲットスレッド」にシグナルを配送できます。シグナルマスクはスレッド単位のため、`sigprocmask(2)` ではなく `pthread_sigmask(3)` を使います（`sigprocmask` のマルチスレッド挙動は規格上未定義）。特定スレッドへの送信は `pthread_kill(3)`。プロセス指向のシグナルをスレッド化する定石は「1 スレッドを丸ごとシグナル受け付け係にし、そこから `sigwaitinfo` で処理する」です。
+
+> **補足 — `raise()` の意味**: `raise(sig)` は単一スレッドプロセスでは `kill(getpid(), sig)` と等価ですが、マルチスレッドでは**自分自身（呼び出しスレッド）**に配送され、`pthread_kill(pthread_self(), sig)` と等価になります。プロセス全体へ送るには明示的に `kill()` を使います。
 
 ### Linux 固有の現代 API: `signalfd` / `pidfd`
 

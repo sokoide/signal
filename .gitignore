@@ -1,0 +1,27 @@
+# Build artifacts
+*.o
+*.obj
+
+# AI
+.ai-handoff*
+.claude/
+
+# Example binaries
+/01_signal_basics
+/02_sigaction
+/03_blocking
+/04_timer
+/05_altstack
+/06_realtime
+/07_selfpipe
+/08_hw_interrupt
+/09_fork_exec
+/10_signal_safety
+
+# macOS debug bundles
+*.dSYM/
+
+# Editor / OS cruft
+.DS_Store
+*.swp
+*~

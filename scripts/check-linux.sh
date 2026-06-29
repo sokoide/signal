@@ -20,7 +20,7 @@ mkdir -p "$dest"
 
 echo "[$arch] build..."
 if [ -n "${V:-}" ]; then
-    make clean && make
+    make clean && make || { echo "[$arch] BUILD FAILED" >&2; exit 1; }
 else
     if ! make clean >/dev/null 2>&1 || ! make >/dev/null 2>&1; then
         echo "[$arch] BUILD FAILED" >&2

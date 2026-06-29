@@ -45,7 +45,7 @@ make check V=1
 This is the recommended way to confirm what the green `ALL PASS` actually
 proves.
 
-## What gets verified (and the one arch-dependent difference)
+## What gets verified
 
 Each sample's normalized output is compared byte-for-byte. Highlights:
 
@@ -62,16 +62,22 @@ Each sample's normalized output is compared byte-for-byte. Highlights:
 - **`01_signal_basics`** — intentionally ends with `raise(SIGINT)` under
   `SIG_DFL` (killed by signal, rc 130), treated as success.
 
-**The only difference between the two architectures** is `SIGSTKSZ`, surfaced
-in `05_altstack` and `09_fork_exec`:
+## SIGSTKSZ is normalized (libc-independent expected outputs)
+
+`05_altstack` and `09_fork_exec` print the alternate-stack size, which is
+`SIGSTKSZ`:
 
 ```
 aarch64: size 20480 bytes      # glibc SIGSTKSZ on ARM64
 x86_64:  size 8192  bytes      # glibc SIGSTKSZ on x86-64
 ```
 
-This is a glibc constant, not a code bug. The other 8 samples match
-byte-for-byte across both arches.
+`SIGSTKSZ` is libc-dependent (glibc 2.34+ evaluates it at runtime; musl uses a
+different value), so the expected outputs normalize it to `<SIGSTKSZ>` via
+`scripts/normalize.sed`. This makes the committed outputs reproducible across
+distros/libcs rather than pinning them to one build environment's value. All
+10 samples therefore match byte-for-byte across both architectures after
+normalization.
 
 ## Expected outputs
 

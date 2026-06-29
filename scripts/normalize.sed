@@ -21,3 +21,10 @@ s/0x[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*/0x
 
 # 04: VIRTUAL timer fires N times during the busy loop — N depends on CPU speed.
 s/fired [0-9][0-9]* times during busy loop/fired <N> times during busy loop/g
+
+# 05/09: SIGSTKSZ value — libc/arch-dependent (glibc aarch64=20480, x86_64=8192;
+# glibc >=2.34 runtime-evaluated; musl differs). Normalize so expected outputs
+# don't depend on the build environment's libc. "size" only appears in the
+# alternate-stack context in these samples, so the context is unambiguous.
+s/size [0-9][0-9]* bytes/size <SIGSTKSZ> bytes/g
+s/size [0-9][0-9]*$/size <SIGSTKSZ>/g

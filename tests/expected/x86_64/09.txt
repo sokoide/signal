@@ -5,14 +5,14 @@ Parent state before fork():
     SIGPIPE: SIG_IGN (ignored)
     SIGUSR2 is BLOCKED
     pending signals: SIGUSR2
-    alternate stack: ENABLED at 0x<ADDR>, size 8192
+    alternate stack: ENABLED at 0x<ADDR>, size <SIGSTKSZ>
 
 == After fork() in child ==
     SIGUSR1: caught by 0x<ADDR>
     SIGPIPE: SIG_IGN (ignored)
     SIGUSR2 is BLOCKED
     pending signals: (none)
-    alternate stack: ENABLED at 0x<ADDR>, size 8192
+    alternate stack: ENABLED at 0x<ADDR>, size <SIGSTKSZ>
 
 == After exec() in child ==
     SIGUSR1: SIG_DFL (default action)

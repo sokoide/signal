@@ -826,7 +826,7 @@ macOS 単体では検証できない `06_realtime`（RT シグナル）や、`08
 
 1. **ビルド** — `make clean && make`（警告・エラーなく通る）
 2. **スモーク** — `timeout 60 make run`（全サンプルがハング/クラッシュせず完走）
-3. **出力差分** — 各サンプルを `timeout` 付きで実行し、PID/UID/`0x` アドレス/CPU 速度依存カウントを正規化（`scripts/normalize.sed`）した上で `tests/expected/<arch>/NN.txt` と `diff -u`
+3. **出力差分** — 各サンプルを `timeout` 付きで実行し、PID/UID/`0x` アドレス/CPU 速度依存カウント/`SIGSTKSZ` を正規化（`scripts/normalize.sed`）した上で `tests/expected/<arch>/NN.txt` と `diff -u`
 
 ```sh
 make linux-machines   # arm64-linux-env / x64-linux-env 作成（初回）
@@ -838,7 +838,7 @@ make expected         # 期待出力を再生成（意図的変更時のみ。�
 
 > **`V=1` で何が検証されているかを確認**: デフォルトの `make check` は結果（`ALL PASS` / 差分）のみを出力します。`make check V=1` を実行すると、各マシンでのビルドログ・`make run` のスモーク出力・各サンプルの**正規化済み実出力**・`PASS <arch>/NN.txt` の個別判定が順に表示され、テストが成功したときに何が起きているかを一目で確認できます。
 
-**dual-arch で機械的に検出されるアーキ依存差**。両アーキを比較して差が出るのは `05_altstack` と `09_fork_exec` の代替スタックサイズのみで、いずれも glibc の `SIGSTKSZ` 定義差（aarch64 = `20480` / x86_64 = `8192`）によるものです。これは仕様差であり（コードのバグではない）、2 アーキを走らせることで自動的に証明されます。残り 8 サンプルは両アーキでバイト完全一致します。
+**正規化により期待出力は libc/アーキ非依存**。`SIGSTKSZ` は代替スタックサイズとして `05_altstack`・`09_fork_exec` が出力しますが、libc 実装・glibc バージョン・アーキで値が変動しうる（glibc 2.34 以降は runtime-evaluated、aarch64 = `20480` / x86_64 = `8192`、musl では異値）ため、`scripts/normalize.sed` で `<SIGSTKSZ>` に正規化しています。これにより期待出力はビルド環境の libc に依存せず、別ディストリ/libc 環境でも再現します。dual-arch で走らせる意義は、ポインタ幅（`ucontext_t` のレジスタダンプ）や RT シグナルなど、アーキ固有の挙動が両方で正しいことを機械的に証明できる点にあります。
 
 検証の詳細・代表的な実出力（RT シグナルのキューイング順序、HW 割り込み ISR との構造的類似のレジスタダンプ、self-pipe 経由のクリーンシャットダウン等）は [`tests/README.md`](tests/README.md) を参照してください。
 

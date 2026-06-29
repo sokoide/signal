@@ -1,4 +1,4 @@
-Allocated alternate stack at 0x<ADDR>, size 8192 bytes.
+Allocated alternate stack at 0x<ADDR>, size <SIGSTKSZ> bytes.
 SIGSEGV handler installed with SA_ONSTACK.
 Now triggering stack overflow via deep recursion...
 Main stack soft limit lowered to 1048576 bytes.

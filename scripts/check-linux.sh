@@ -45,9 +45,17 @@ fi
 
 # run_norm <num> <bin> <timeout_secs>
 # Runs a self-terminating sample, captures combined output, normalizes in place.
+# Continues regardless of exit code (output is still diffed later), but warns on
+# unexpected non-zero exits so a crash/hang doesn't hide behind a clean diff.
 run_norm() {
     local num="$1" bin="$2" tmo="$3"
-    timeout "$tmo" "./$bin" >"$dest/$num.txt" 2>&1 || true
+    timeout "$tmo" "./$bin" >"$dest/$num.txt" 2>&1
+    local rc=$?
+    # 01 exits via raise(SIGINT) under SIG_DFL (rc 130) — expected.
+    # 05 deliberately _exit(128 + SIGSEGV) (rc 139) from its handler — expected.
+    if [ "$rc" -ne 0 ] && [ "$num" != "01" ] && [ "$num" != "05" ]; then
+        echo "[$arch] WARNING: $bin exited rc=$rc (output captured; will be flagged by diff if wrong)" >&2
+    fi
     sed -i -f scripts/normalize.sed "$dest/$num.txt"
     if [ -n "${V:-}" ]; then
         echo "----- $bin (normalized output) -----"
@@ -76,7 +84,11 @@ exec 9<>"$fifo"            # keep a write fd open so the read end never sees EOF
 pid07=$!
 sleep 0.6
 kill -INT "$pid07" 2>/dev/null || true
-wait "$pid07" 2>/dev/null || true
+wait "$pid07" 2>/dev/null
+rc07=$?
+if [ "$rc07" -ne 0 ]; then
+    echo "[$arch] WARNING: 07 exited rc=$rc07 (expected clean shutdown via self-pipe, exit 0)" >&2
+fi
 exec 9>&-
 rm -f "$fifo"
 sed -i -f scripts/normalize.sed "$dest/07.txt"

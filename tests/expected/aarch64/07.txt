@@ -1,0 +1,7 @@
+Self-pipe demo running.  PID=<PID>
+Press Enter, or send SIGINT (Ctrl-C) / SIGTERM.
+Send signals from another terminal with:
+  kill -INT <PID>
+  kill -TERM <PID>
+[event loop] Signal converted to FD event: sig=2 (SIGINT)
+[event loop] Shutting down cleanly.

@@ -1,0 +1,53 @@
+=== Timer ISR vs POSIX Signal Handler ===
+This program demonstrates the structural correspondence
+between hardware interrupts / ISRs and POSIX signals / handlers.
+
+Hardware interrupt:   IRQ -> CPU saves regs -> IDT -> ISR -> iret
+POSIX signal:         setitimer -> kernel saves ucontext_t -> sigaction table -> handler -> sigreturn
+
+A busy CPU loop runs.  Every 500 ms of virtual CPU time,
+SIGVTALRM fires and the handler prints the saved PC/SP/FP.
+
+Timer armed.  Entering busy loop...
+
+=== Timer ISR (SIGVTALRM) ===
+Signal number: 26
+Saved PC  (program counter) = 0x<ADDR>
+Saved SP  (stack pointer)   = 0x<ADDR>
+Saved FP  (frame pointer)   = 0x<ADDR>
+==============================
+[main loop] interrupts so far = 1
+
+=== Timer ISR (SIGVTALRM) ===
+Signal number: 26
+Saved PC  (program counter) = 0x<ADDR>
+Saved SP  (stack pointer)   = 0x<ADDR>
+Saved FP  (frame pointer)   = 0x<ADDR>
+==============================
+[main loop] interrupts so far = 2
+
+=== Timer ISR (SIGVTALRM) ===
+Signal number: 26
+Saved PC  (program counter) = 0x<ADDR>
+Saved SP  (stack pointer)   = 0x<ADDR>
+Saved FP  (frame pointer)   = 0x<ADDR>
+==============================
+[main loop] interrupts so far = 3
+
+=== Timer ISR (SIGVTALRM) ===
+Signal number: 26
+Saved PC  (program counter) = 0x<ADDR>
+Saved SP  (stack pointer)   = 0x<ADDR>
+Saved FP  (frame pointer)   = 0x<ADDR>
+==============================
+[main loop] interrupts so far = 4
+
+=== Timer ISR (SIGVTALRM) ===
+Signal number: 26
+Saved PC  (program counter) = 0x<ADDR>
+Saved SP  (stack pointer)   = 0x<ADDR>
+Saved FP  (frame pointer)   = 0x<ADDR>
+==============================
+[main loop] interrupts so far = 5
+
+Timer disarmed after 5 interrupts.  Exiting cleanly.

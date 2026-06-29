@@ -1,0 +1,25 @@
+PID: <PID>
+
+--- 1. SA_SIGINFO on SIGUSR1 ---
+[SA_SIGINFO] signal=10  si_pid=<PID>  si_uid=<UID>  si_code=-6
+
+--- 2. SA_RESTART with SIGALRM ---
+Parent: calling read() on an empty pipe...
+[SA_RESTART] SIGALRM handler ran
+Parent: read() returned '!', alarm_received=1 -> read() was restarted after the signal
+
+--- 3. SA_NODEFER on SIGUSR1 ---
+[SA_NODEFER] entered, depth=1
+[SA_NODEFER] raising SIGUSR1 recursively
+[SA_NODEFER] entered, depth=2
+[SA_NODEFER] leaving, depth=2
+[SA_NODEFER] leaving, depth=1
+Main: after SA_NODEFER demo, depth should be 0 (actual=0)
+
+--- 4. SA_RESETHAND on SIGCHLD ---
+[SA_RESETHAND] SIGCHLD handled (this should run exactly once)
+Main: rese_handled=1 (should be 1 because handler was reset)
+
+--- 5. SIGSEGV si_addr in a child process ---
+[SIGSEGV] faulting address: 0x0
+Main: child exited with status 0

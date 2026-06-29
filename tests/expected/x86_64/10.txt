@@ -1,0 +1,27 @@
+Main program: waiting for 5 SIGALRM signals.
+(The signal handler uses only write(), alarm(), and sig_atomic_t.)
+
+[handler] SIGALRM received; only async-signal-safe write() used here
+[main]    saw got_signal; count = 1
+[handler] SIGALRM received; only async-signal-safe write() used here
+[main]    saw got_signal; count = 2
+[handler] SIGALRM received; only async-signal-safe write() used here
+[main]    saw got_signal; count = 3
+[handler] SIGALRM received; only async-signal-safe write() used here
+[main]    saw got_signal; count = 4
+[handler] SIGALRM received; only async-signal-safe write() used here
+[main]    saw got_signal; count = 5
+
+Demo complete.
+Final signal_count = 5
+
+Async-signal-safe examples (ok in handlers):
+  _exit(), write(), read(), close(), fcntl(), kill(),
+  sigaction(), signal(), sigprocmask(), alarm(), abort()
+
+UNSAFE in signal handlers (can deadlock or corrupt state):
+  printf(), malloc(), free(), exit(), fopen(), fclose(),
+  pthread_mutex_lock(), pthread_mutex_unlock(), longjmp()
+
+Rule of thumb: do as little as possible in a handler.
+Set a volatile sig_atomic_t flag and let main() do the rest.

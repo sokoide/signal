@@ -80,6 +80,38 @@ run-interactive: 07_selfpipe
 	@echo "Press Ctrl-C in this terminal to stop."
 	@./07_selfpipe || true
 
+# ---------------------------------------------------------------------------
+# Local Linux testing on OrbStack (aarch64 + x86_64).
+# See tests/README.md for the full workflow. macOS stays the human-facing host.
+# ---------------------------------------------------------------------------
+LINUX_MACHINES := arm64-linux-env x64-linux-env
+
+# Create the two dedicated machines (idempotent: skips ones that already exist).
+linux-machines:
+	@for spec in "arm64 arm64-linux-env" "amd64 x64-linux-env"; do \
+		set -- $$spec; \
+		arch=$$1; name=$$2; \
+		if orbctl list | awk '{print $$1}' | grep -qx "$$name"; then \
+			echo "[skip] machine $$name already exists"; \
+		else \
+			echo "[create] $$name ($$arch)"; \
+			orbctl create -a $$arch ubuntu:24.04 $$name; \
+		fi; \
+	done
+
+# Install build-essential in both machines (run once after linux-machines).
+linux-setup:
+	@scripts/linux-setup.sh
+
+# Regenerate the committed expected outputs on both architectures.
+# Review the diff and commit when an output change is intentional.
+expected:
+	@scripts/check.sh generate
+
+# Build, run all samples on both machines, and diff against tests/expected/.
+check:
+	@scripts/check.sh
+
 format:
 	@echo "Formatting all .c and .h files..."
 	@find . \( -name "*.c" -o -name "*.h" \) -print0 | xargs -0 clang-format -i
@@ -89,4 +121,4 @@ clean:
 	rm -f $(BINS)
 	rm -rf *.dSYM
 
-.PHONY: all format clean run run-interactive
+.PHONY: all format clean run run-interactive linux-machines linux-setup expected check

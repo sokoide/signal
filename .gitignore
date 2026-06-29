@@ -21,6 +21,9 @@
 # macOS debug bundles
 *.dSYM/
 
+# Local test run outputs (regenerated; expected outputs are committed)
+tests/out/
+
 # Editor / OS cruft
 .DS_Store
 *.swp

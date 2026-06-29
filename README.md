@@ -820,6 +820,17 @@ brew install coreutils
 
 インストール後、`timeout` の代わりに `gtimeout` として使えるようになります。必要に応じて `~/.zshrc` 等で `alias timeout=gtimeout` を設定してください。
 
+### Linux 両アーキテクチャで自動検証（OrbStack）
+
+macOS 単体では検証できない `06_realtime`（RT シグナル）や、`08_hw_interrupt` の `ucontext_t` レジスタダンプ（x86_64 は `RIP/RSP/RBP`、aarch64 は `PC/SP/FP`）を含め、**サンプルを実際に動かして**検証します。OrbStack で aarch64 / x86_64 両方の Linux マシンを作り、`make run` のスモークテスト + サンプル別の出力差分を回します。詳細は [`tests/README.md`](tests/README.md)。
+
+```sh
+make linux-machines   # arm64-linux-env / x64-linux-env 作成（初回）
+make linux-setup      # 両マシンに build-essential 導入（初回）
+make check            # 両アーキでビルド+実行+期待出力との差分
+make expected         # 期待出力を再生成（意図的変更時のみ。レビュー後コミット）
+```
+
 ### カーネルシグナル送信を試す
 
 ```sh

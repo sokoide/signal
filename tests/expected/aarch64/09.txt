@@ -1,0 +1,35 @@
+Parent state before fork():
+
+== Parent before fork() ==
+    SIGUSR1: caught by 0x<ADDR>
+    SIGPIPE: SIG_IGN (ignored)
+    SIGUSR2 is BLOCKED
+    pending signals: SIGUSR2
+    alternate stack: ENABLED at 0x<ADDR>, size 20480
+
+== After fork() in child ==
+    SIGUSR1: caught by 0x<ADDR>
+    SIGPIPE: SIG_IGN (ignored)
+    SIGUSR2 is BLOCKED
+    pending signals: (none)
+    alternate stack: ENABLED at 0x<ADDR>, size 20480
+
+== After exec() in child ==
+    SIGUSR1: SIG_DFL (default action)
+    SIGPIPE: SIG_IGN (ignored)
+    SIGUSR2 is BLOCKED
+    pending signals: (none)
+    alternate stack: DISABLED
+
+Child exited successfully.
+
+Summary of POSIX signal inheritance rules:
+  fork():  signal handlers are inherited.
+  fork():  signal mask is inherited.
+  fork():  pending signals are CLEARED for the child.
+  fork():  alternate stack inheritance is implementation-defined
+           (inherited on Linux, often cleared on macOS).
+  exec():  caught handlers reset to SIG_DFL.
+  exec():  ignored handlers (SIG_IGN) remain ignored.
+  exec():  signal mask is preserved.
+  exec():  alternate signal stack is cleared.

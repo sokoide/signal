@@ -1,0 +1,26 @@
+=== POSIX real-time signal demo ===
+SIGRTMIN = 34, SIGRTMAX = 64
+
+Sending SIGUSR1 5 times (standard signal, should merge)...
+Sending SIGRTMIN 5 times via sigqueue (real-time, should queue)...
+Sending SIGRTMIN+1 first, then SIGRTMIN to show priority order...
+
+SIGUSR1 was delivered (sent 5 times, merged into a single delivery).
+Collected 15 real-time signal event(s) via sigtimedwait:
+  event #01: signal=34 (SIGRTMIN+0), data=100
+  event #02: signal=34 (SIGRTMIN+0), data=101
+  event #03: signal=34 (SIGRTMIN+0), data=102
+  event #04: signal=34 (SIGRTMIN+0), data=103
+  event #05: signal=34 (SIGRTMIN+0), data=104
+  event #06: signal=34 (SIGRTMIN+0), data=300
+  event #07: signal=34 (SIGRTMIN+0), data=301
+  event #08: signal=34 (SIGRTMIN+0), data=302
+  event #09: signal=34 (SIGRTMIN+0), data=303
+  event #10: signal=34 (SIGRTMIN+0), data=304
+  event #11: signal=35 (SIGRTMIN+1), data=200
+  event #12: signal=35 (SIGRTMIN+1), data=201
+  event #13: signal=35 (SIGRTMIN+1), data=202
+  event #14: signal=35 (SIGRTMIN+1), data=203
+  event #15: signal=35 (SIGRTMIN+1), data=204
+
+Done.

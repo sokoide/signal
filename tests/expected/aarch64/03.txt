@@ -1,0 +1,16 @@
+PID: <PID>
+
+Blocking SIGINT...
+Raising SIGINT twice while it is blocked...
+SIGINT is pending (as expected).
+Unblocking SIGINT...
+[handler] SIGINT delivered, count=1
+Main: sigint_count=1 (should be 1)
+
+--- Critical section demo ---
+Blocking SIGINT and SIGTERM...
+Critical section done, important_value=20
+Restored previous signal mask.
+
+After sigfillset(): SIGINT member=1
+After sigdelset(SIGINT): SIGINT member=0, SIGTERM member=1

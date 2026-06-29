@@ -822,14 +822,25 @@ brew install coreutils
 
 ### Linux 両アーキテクチャで自動検証（OrbStack）
 
-macOS 単体では検証できない `06_realtime`（RT シグナル）や、`08_hw_interrupt` の `ucontext_t` レジスタダンプ（x86_64 は `RIP/RSP/RBP`、aarch64 は `PC/SP/FP`）を含め、**サンプルを実際に動かして**検証します。OrbStack で aarch64 / x86_64 両方の Linux マシンを作り、`make run` のスモークテスト + サンプル別の出力差分を回します。詳細は [`tests/README.md`](tests/README.md)。
+macOS 単体では検証できない `06_realtime`（RT シグナル）や、`08_hw_interrupt` の `ucontext_t` レジスタダンプ（x86_64 は `RIP/RSP/RBP`、aarch64 は `PC/SP/FP`）を含め、**サンプルを実際に動かして**検証します。OrbStack で aarch64 / x86_64 両方の Linux マシン（ubuntu:24.04）を作り、各マシン内で次の **3層** を回します。
+
+1. **ビルド** — `make clean && make`（警告・エラーなく通る）
+2. **スモーク** — `timeout 60 make run`（全サンプルがハング/クラッシュせず完走）
+3. **出力差分** — 各サンプルを `timeout` 付きで実行し、PID/UID/`0x` アドレス/CPU 速度依存カウントを正規化（`scripts/normalize.sed`）した上で `tests/expected/<arch>/NN.txt` と `diff -u`
 
 ```sh
 make linux-machines   # arm64-linux-env / x64-linux-env 作成（初回）
 make linux-setup      # 両マシンに build-essential 導入（初回）
-make check            # 両アーキでビルド+実行+期待出力との差分
+make check            # 両アーキでビルド+実行+期待出力との差分（成功時は ALL PASS のみ出力）
+make check V=1        # verbose: ビルド/実行ログ・各サンプルの正規化済み出力・PASS 行を表示
 make expected         # 期待出力を再生成（意図的変更時のみ。レビュー後コミット）
 ```
+
+> **`V=1` で何が検証されているかを確認**: デフォルトの `make check` は結果（`ALL PASS` / 差分）のみを出力します。`make check V=1` を実行すると、各マシンでのビルドログ・`make run` のスモーク出力・各サンプルの**正規化済み実出力**・`PASS <arch>/NN.txt` の個別判定が順に表示され、テストが成功したときに何が起きているかを一目で確認できます。
+
+**dual-arch で機械的に検出されるアーキ依存差**。両アーキを比較して差が出るのは `05_altstack` と `09_fork_exec` の代替スタックサイズのみで、いずれも glibc の `SIGSTKSZ` 定義差（aarch64 = `20480` / x86_64 = `8192`）によるものです。これは仕様差であり（コードのバグではない）、2 アーキを走らせることで自動的に証明されます。残り 8 サンプルは両アーキでバイト完全一致します。
+
+検証の詳細・代表的な実出力（RT シグナルのキューイング順序、HW 割り込み ISR との構造的類似のレジスタダンプ、self-pipe 経由のクリーンシャットダウン等）は [`tests/README.md`](tests/README.md) を参照してください。
 
 ### カーネルシグナル送信を試す
 
@@ -917,4 +928,9 @@ signal/
     08_hw_interrupt.c       HW割り込みISRとシグナルハンドラの構造的類似性
     09_fork_exec.c          fork/exec でのシグナル継承
     10_signal_safety.c      非同期シグナル安全
+  scripts/                  OrbStack デュアルアーキ検証（check / in-linux / normalize）
+  tests/
+    README.md               検証の詳細と実出力例
+    expected/{aarch64,x86_64}/  正規化済み期待出力（コミット済み）
+    out/{aarch64,x86_64}/       make check が生成する実出力（.gitignore 対象）
 ```

@@ -19,15 +19,28 @@ esac
 mkdir -p "$dest"
 
 echo "[$arch] build..."
-if ! make clean >/dev/null 2>&1 || ! make >/dev/null 2>&1; then
-    echo "[$arch] BUILD FAILED" >&2
-    exit 1
+if [ -n "${V:-}" ]; then
+    make clean && make
+else
+    if ! make clean >/dev/null 2>&1 || ! make >/dev/null 2>&1; then
+        echo "[$arch] BUILD FAILED" >&2
+        exit 1
+    fi
 fi
 
 echo "[$arch] smoke: make run (must complete without hanging)"
-if ! timeout 60 make run >/dev/null 2>&1; then
-    echo "[$arch] make run SMOKE FAILED (hang or crash)" >&2
-    exit 1
+if [ -n "${V:-}" ]; then
+    timeout 60 make run
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        echo "[$arch] make run SMOKE FAILED (hang or crash, rc=$rc)" >&2
+        exit 1
+    fi
+else
+    if ! timeout 60 make run >/dev/null 2>&1; then
+        echo "[$arch] make run SMOKE FAILED (hang or crash)" >&2
+        exit 1
+    fi
 fi
 
 # run_norm <num> <bin> <timeout_secs>
@@ -36,6 +49,10 @@ run_norm() {
     local num="$1" bin="$2" tmo="$3"
     timeout "$tmo" "./$bin" >"$dest/$num.txt" 2>&1 || true
     sed -i -f scripts/normalize.sed "$dest/$num.txt"
+    if [ -n "${V:-}" ]; then
+        echo "----- $bin (normalized output) -----"
+        cat "$dest/$num.txt"
+    fi
 }
 
 # 01 exits via raise(SIGINT) under SIG_DFL — killed by signal (rc 130), expected.
@@ -63,5 +80,9 @@ wait "$pid07" 2>/dev/null || true
 exec 9>&-
 rm -f "$fifo"
 sed -i -f scripts/normalize.sed "$dest/07.txt"
+if [ -n "${V:-}" ]; then
+    echo "----- 07_selfpipe (normalized output) -----"
+    cat "$dest/07.txt"
+fi
 
 echo "[$arch] wrote $dest"

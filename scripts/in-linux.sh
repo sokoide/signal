@@ -29,4 +29,9 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # user — no ownership surprises, and no sudo needed for package installs.
 # The command is subject to remote shell parsing, so keep arguments simple
 # (no embedded quotes/spaces).
-orb -m "$machine" -u root bash -lc "cd '$repo' && $*"
+
+# Pass through selected host env vars (currently V for verbose test output).
+prefix=""
+[ -n "${V:-}" ] && prefix="export V=1; "
+
+orb -m "$machine" -u root bash -lc "cd '$repo' && ${prefix}$*"

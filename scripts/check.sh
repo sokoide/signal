@@ -41,6 +41,8 @@ for arch in aarch64 x86_64; do
         if ! diff -u "$exp" "$got"; then
             echo "MISMATCH: $arch/$n" >&2
             rc=1
+        else
+            [ -n "${V:-}" ] && echo "PASS  $arch/$n"
         fi
     done
 done

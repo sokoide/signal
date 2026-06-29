@@ -109,6 +109,8 @@ expected:
 	@scripts/check.sh generate
 
 # Build, run all samples on both machines, and diff against tests/expected/.
+# Append V=1 for verbose output (per-sample build/run logs, normalized
+# sample output, and a PASS line per sample):  make check V=1
 check:
 	@scripts/check.sh
 

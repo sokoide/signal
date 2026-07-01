@@ -1,52 +1,52 @@
 /*
- * 07_selfpipe.c — The Self-Pipe Trick
+ * 07_selfpipe.c — Self-Pipe Trick
  *
- * Topic: converting asynchronous POSIX signals into file-descriptor events
- * so they can be handled inside a single select()/poll()/epoll() event loop.
+ * テーマ: 非同期 POSIX シグナルをファイルディスクリプタイベントに変換し、
+ * 単一の select()/poll()/epoll() イベントループ内で処理できるようにする。
  *
- * The problem
- * -----------
- * Event-driven programs wait for activity on file descriptors using
- * select(), poll(), epoll(), kqueue(), etc.  These APIs can only watch FDs.
- * Signals are *not* file descriptors, so a signal arriving while the main
- * loop is blocked in select() does not by itself make select() return.
- * The program therefore needs a bridge between "signal arrived" and
- * "FD became readable".
+ * 問題
+ * ----
+ * イベント駆動型プログラムは、select()、poll()、epoll()、kqueue() などを
+ * 使ってファイルディスクリプタ上のアクティビティを待つ。これらの API は
+ * FD しか監視できない。シグナルはファイルディスクリプタではないため、
+ * メインループが select() でブロック中にシグナルが到着しても、それだけで
+ * select() が戻ることはない。そのため、「シグナルが到着した」と
+ * 「FD が読み取り可能になった」の間をつなぐ橋渡しが必要。
  *
- * The solution (self-pipe)
- * ------------------------
- * Create a pipe.  In the signal handler, perform the smallest possible
- * async-signal-safe action: write one byte to the pipe.  The byte we write
- * is the signal number, so the main loop can tell *which* signal arrived.
- * In the main loop, include the read end of the pipe in the FD set passed
- * to select().  When select() reports that the pipe is readable, drain it
- * and process the signal in normal program context — where printf(), malloc(),
- * and arbitrary logic are safe.
+ * 解決策（self-pipe）
+ * --------------------
+ * パイプを作成する。シグナルハンドラ内で、async-signal-safe な最小限の
+ * アクションを実行する: パイプに1バイト書き込む。書き込むバイトは
+ * シグナル番号なので、メインループはどのシグナルが到着したかを
+ * 識別できる。メインループでは、パイプの読み取り端を select() に渡す
+ * FD セットに含める。select() がパイプの読み取り可能を通知したら、
+ * パイプを drain し、通常のプログラムコンテキストでシグナルを処理する —
+ * そこで printf()、malloc()、任意のロジックが安全になる。
  *
- * Why this is safe
+ * なぜ安全か
  * ----------------
- * 1. write(2) is async-signal-safe, so calling it from a signal handler
- *    does not risk deadlock or corrupting stdio/heap locks.
- * 2. The write end is made non-blocking (O_NONBLOCK).  Even if many signals
- *    arrive in a burst, write() returns EAGAIN instead of blocking forever
- *    inside the handler.
- * 3. The read end is read by the main loop, not by the handler, so complex
- *    processing happens in normal context.
+ * 1. write(2) は async-signal-safe なので、シグナルハンドラから呼んでも
+ *    デッドロックや stdio/ヒープロックの破損リスクがない。
+ * 2. 書き込み端は非ブロッキング（O_NONBLOCK）に設定する。多くのシグナルが
+ *    バーストで到着しても、write() はハンドラ内で永久にブロックせず
+ *    EAGAIN を返す。
+ * 3. 読み取り端はハンドラではなくメインループが読み取るため、
+ *    複雑な処理は通常コンテキストで行われる。
  *
- * Linux alternative
+ * Linux の代替
  * -----------------
- * Linux provides signalfd(2), which creates a file descriptor that becomes
- * readable when a signal arrives.  It is cleaner but Linux-specific.
- * The self-pipe trick is fully POSIX and works on macOS, *BSD, etc.
+ * Linux は signalfd(2) を提供する。これはシグナル到着時に読み取り可能に
+ * なるファイルディスクリプタを作成する。よりクリーンだが Linux 固有。
+ * Self-pipe trick は完全に POSIX 準拠で、macOS、*BSD などでも動作する。
  *
- * Build:
+ * ビルド:
  *   cc -std=c11 -Wall -Wextra -O2 -g examples/07_selfpipe.c -o 07_selfpipe
  *
- * Run:
+ * 実行:
  *   ./07_selfpipe
  *
- * Test:
- *   Press Ctrl-C (SIGINT) or send SIGTERM from another terminal:
+ * テスト:
+ *   Ctrl-C (SIGINT) を押すか、別の端末から SIGTERM を送る:
  *     kill -INT  <pid>
  *     kill -TERM <pid>
  */
@@ -61,41 +61,41 @@
 #include <sys/select.h>
 #include <unistd.h>
 
-/* The pipe file descriptors.  Index 0 is the read end, index 1 the write end.
- * These are global so the signal handler can write to the pipe. */
+/* パイプのファイルディスクリプタ。インデックス 0 が読み取り端、
+ * インデックス 1 が書き込み端。シグナルハンドラがパイプに書き込めるように
+ * グローバル変数にする。 */
 static int selfpipe[2] = {-1, -1};
 
-/* Count of signals dropped because the self-pipe buffer was full.
- * This is volatile sig_atomic_t because it is written by the handler. */
+/* セルフパイプバッファが満杯でドロップされたシグナルの数。
+ * ハンドラが書き込むので volatile sig_atomic_t。 */
 static volatile sig_atomic_t selfpipe_overflow_count = 0;
 
 /*
- * Signal handler.
+ * シグナルハンドラ。
  *
- * This runs in signal context, so we must use only async-signal-safe
- * functions.  We only call write().  We write a single byte: the signal
- * number that caused the handler to run.  The main loop will read this
- * byte and handle the signal in normal context.
+ * シグナルコンテキストで実行されるため、async-signal-safe な関数のみ
+ * 使用する。ここでは write() だけを呼ぶ。シグナル番号を1バイト書き込む。
+ * メインループがこのバイトを読み取り、通常コンテキストでシグナルを処理する。
  */
 static void selfpipe_handler(int sig) {
-    /* Save errno because write() may change it, and the interrupted code
-     * might be checking errno when the signal arrived. */
+    /* errno を保存。write() が変更する可能性があり、シグナル到着時に
+     * 中断されたコードが errno をチェックしている可能性があるため。 */
     int saved_errno = errno;
 
-    /* The signal number fits in one byte (signals are 1-31 for standard
-     * signals, and up to 64 on Linux for real-time signals). */
+    /* シグナル番号は1バイトに収まる（標準シグナルは 1-31、
+     * Linux のリアルタイムシグナルでも最大 64）。 */
     unsigned char c = (unsigned char)sig;
 
-    /* write() is async-signal-safe.  Making the write end non-blocking
-     * prevents us from blocking here. If signals arrive faster than the
-     * main loop drains the pipe, the pipe buffer (typically 16-64 KiB)
-     * can fill up and write() returns EAGAIN. We count those drops so
-     * the demo can report the limitation.
+    /* write() は async-signal-safe。書き込み端を非ブロッキングにすることで、
+     * ここでブロックするのを防ぐ。メインループの drain より速くシグナルが
+     * 到着すると、パイプバッファ（通常 16-64 KiB）が満杯になり、
+     * write() は EAGAIN を返す。これらのドロップをカウントして
+     * 制限事項を報告する。
      *
-     * This is an inherent limitation of the self-pipe pattern.
-     * The Linux-specific signalfd(2) avoids this issue. */
-    /* Retry on EINTR (another, non-blocked signal interrupted the write).
-     * Only EAGAIN — the pipe buffer is full — counts as a genuine drop. */
+     * これは self-pipe パターンの本質的な制限。
+     * Linux 固有の signalfd(2) はこの問題を回避する。 */
+    /* EINTR（別の非ブロックシグナルが write を中断）の場合は再試行。
+     * 本当のドロップは EAGAIN（パイプバッファ満杯）のみ。 */
     ssize_t ret;
     do {
         ret = write(selfpipe[1], &c, 1);
@@ -108,10 +108,10 @@ static void selfpipe_handler(int sig) {
 }
 
 /*
- * Set a file descriptor to non-blocking mode.
- * This is important for the write end of the self-pipe: if a burst of
- * signals arrives while the pipe buffer is full, write() will return -1
- * with EAGAIN instead of blocking inside the signal handler.
+ * ファイルディスクリプタを非ブロッキングモードに設定する。
+ * これはセルフパイプの書き込み端にとって重要: バーストでシグナルが到着し
+ * パイプバッファが満杯の場合、write() はシグナルハンドラ内でブロックせず
+ * EAGAIN で -1 を返す。
  */
 static int set_nonblocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -125,7 +125,7 @@ static int set_nonblocking(int fd) {
 }
 
 /*
- * Register a signal that should be forwarded through the self-pipe.
+ * セルフパイプ経由で転送するシグナルを登録する。
  */
 static int register_selfpipe_signal(int sig) {
     struct sigaction sa;
@@ -133,12 +133,12 @@ static int register_selfpipe_signal(int sig) {
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = selfpipe_handler;
 
-    /* Block all self-pipe signals while any self-pipe handler runs.
-     * This serializes access to selfpipe[1] and selfpipe_overflow_count:
-     * the SIGINT handler cannot be interrupted by SIGTERM (and vice versa),
-     * so the non-atomic ++ on selfpipe_overflow_count is safe in practice.
-     * Blocking the signal itself is also the default, but being explicit is
-     * educational. */
+    /* すべてのセルフパイプハンドラ実行中に、全セルフパイプシグナルを
+     * ブロックする。これにより selfpipe[1] と selfpipe_overflow_count への
+     * アクセスが直列化される: SIGINT ハンドラが SIGTERM に割り込まれる
+     * ことはない（逆も同様）。従って selfpipe_overflow_count への
+     * 非不可分な ++ も実用上安全。シグナル自体をブロックするのは
+     * デフォルト動作だが、明示するのは教育的。 */
     if (sigemptyset(&sa.sa_mask) == -1) {
         return -1;
     }
@@ -149,11 +149,11 @@ static int register_selfpipe_signal(int sig) {
         return -1;
     }
 
-    /* We do NOT use SA_RESTART here.  If a signal arrives while the main
-     * thread is blocked in select(), we *want* select() to return with
-     * EINTR so that the FD set can be re-evaluated.  In practice, select()
-     * will return because the self-pipe became readable, not because of
-     * EINTR, but restarting would be counter-productive. */
+    /* SA_RESTART は使わない。メインスレッドが select() でブロック中に
+     * シグナルが到着した場合、select() が EINTR で戻って FD セットを
+     * 再評価できるようにしたい。実際には、セルフパイプが読み取り可能に
+     * なることで select() が戻るので EINTR は起こらないが、
+     * 再開するのは逆効果。 */
     sa.sa_flags = 0;
 
     if (sigaction(sig, &sa, NULL) == -1) {
@@ -164,9 +164,9 @@ static int register_selfpipe_signal(int sig) {
 
 int main(void) {
     /*
-     * Step 1: create the self-pipe.
-     * selfpipe[0] = read end (monitored by select)
-     * selfpipe[1] = write end (written by signal handler)
+     * ステップ 1: セルフパイプを作成。
+     * selfpipe[0] = 読み取り端（select で監視）
+     * selfpipe[1] = 書き込み端（シグナルハンドラが書き込む）
      */
     if (pipe(selfpipe) == -1) {
         perror("pipe");
@@ -174,11 +174,11 @@ int main(void) {
     }
 
     /*
-     * Step 2: make both ends of the pipe non-blocking.
-     * Write end: a signal storm must not block the handler forever.
-     * Read end:  the drain loop below calls read() repeatedly until the pipe
-     * is empty; with a blocking read end, an empty pipe would block the main
-     * loop.  Non-blocking lets us drain until EAGAIN.
+     * ステップ 2: パイプの両端を非ブロッキングにする。
+     * 書き込み端: シグナルストームがハンドラを永久にブロックしてはならない。
+     * 読み取り端: 以下の drain ループはパイプが空になるまで read() を
+     * 繰り返し呼ぶ。ブロッキング読み取り端だと、空のパイプでメインループが
+     * ブロックする。非ブロッキングなら EAGAIN まで drain できる。
      */
     if (set_nonblocking(selfpipe[1]) == -1) {
         perror("fcntl O_NONBLOCK (write end)");
@@ -194,8 +194,8 @@ int main(void) {
     }
 
     /*
-     * Step 3: install signal handlers that write to the self-pipe.
-     * We demonstrate SIGINT (Ctrl-C) and SIGTERM (kill -TERM).
+     * ステップ 3: セルフパイプに書き込むシグナルハンドラをインストール。
+     * SIGINT（Ctrl-C）と SIGTERM（kill -TERM）を実演。
      */
     if (register_selfpipe_signal(SIGINT) == -1) {
         perror("sigaction SIGINT");
@@ -218,10 +218,10 @@ int main(void) {
     fflush(stdout);
 
     /*
-     * Step 4: main event loop using select().
-     * We monitor two FDs:
-     *   - selfpipe[0] : signals converted to FD events
-     *   - STDIN_FILENO: ordinary terminal input
+     * ステップ 4: select() を使ったメインイベントループ。
+     * 2つの FD を監視:
+     *   - selfpipe[0] : FD イベントに変換されたシグナル
+     *   - STDIN_FILENO: 通常の端末入力
      */
     for (;;) {
         fd_set rfds;
@@ -234,12 +234,13 @@ int main(void) {
 
         maxfd = selfpipe[0] > STDIN_FILENO ? selfpipe[0] : STDIN_FILENO;
 
-        /* select() blocks until one of the watched FDs becomes readable. */
+        /* select() は監視対象の FD のいずれかが読み取り可能になるまでブロック */
         ret = select(maxfd + 1, &rfds, NULL, NULL, NULL);
         if (ret == -1) {
-            /* EINTR is possible if a signal arrives just before select()
-             * blocks and the kernel restarts it.  With our self-pipe,
-             * the pipe will be readable next iteration, so we simply loop. */
+            /* シグナルが select() がブロックする直前に到着し、カーネルが
+             * 再開した場合に EINTR が発生しうる。セルフパイプがあれば
+             * 次のイテレーションでパイプが読み取り可能になるので、
+             * 単にループする。 */
             if (errno == EINTR) {
                 continue;
             }
@@ -248,18 +249,19 @@ int main(void) {
         }
 
         /*
-         * Case A: the self-pipe is readable -> a signal arrived.
-         * We drain the pipe in a loop to handle all bytes that may have
-         * accumulated during a burst.
+         * ケース A: セルフパイプが読み取り可能 → シグナル到着。
+         * バースト中に蓄積された全バイトを処理するため、
+         * ループでパイプを drain する。
          */
         if (FD_ISSET(selfpipe[0], &rfds)) {
             unsigned char buf[16];
             ssize_t n;
 
             /*
-             * Read in a loop until the pipe is empty.  This handles the
-             * edge case where many signals arrive very quickly.
-             * EAGAIN means the pipe is drained; that is expected and safe.
+             * パイプが空になるまで読み取りループ。
+             * 多くのシグナルが非常に短時間に到着するエッジケースを処理。
+             * EAGAIN はパイプが drain されたことを意味する; これは
+             * 期待され安全な状態。
              */
             while ((n = read(selfpipe[0], buf, sizeof(buf))) > 0) {
                 for (ssize_t i = 0; i < n; ++i) {
@@ -275,7 +277,7 @@ int main(void) {
                     }
                     fflush(stdout);
 
-                    /* For this demo, either signal triggers clean shutdown. */
+                    /* このデモでは、どちらのシグナルでもクリーンシャットダウン */
                     if (sig == SIGINT || sig == SIGTERM) {
                         printf("[event loop] Shutting down cleanly.\n");
                         if (selfpipe_overflow_count > 0) {
@@ -298,7 +300,7 @@ int main(void) {
         }
 
         /*
-         * Case B: stdin is readable -> ordinary input.
+         * ケース B: stdin が読み取り可能 → 通常の入力。
          */
         if (FD_ISSET(STDIN_FILENO, &rfds)) {
             char line[256];
@@ -311,7 +313,7 @@ int main(void) {
         }
     }
 
-    /* Cleanup. */
+    /* 後片付け */
     close(selfpipe[0]);
     close(selfpipe[1]);
     return EXIT_SUCCESS;

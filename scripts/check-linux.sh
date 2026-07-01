@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Runs INSIDE an OrbStack Linux machine.
-# Builds all samples, runs each (with per-sample handling), normalizes output,
-# and writes it to tests/<out|expected>/<arch>/NN.txt.
+# OrbStack Linux マシン *内部* で実行される。
+# 全サンプルをビルドし、各サンプルを実行し（サンプルごとに個別処理）、
+# 出力を正規化して tests/<out|expected>/<arch>/NN.txt に書き込む。
 #
-# Usage (invoked via scripts/in-linux.sh <machine>):
-#   scripts/check-linux.sh check      # write to tests/out/<arch>/
-#   scripts/check-linux.sh generate   # write to tests/expected/<arch>/
+# 使い方（scripts/in-linux.sh <マシン名> 経由で呼び出し）:
+#   scripts/check-linux.sh check      # tests/out/<arch>/ に書き込み
+#   scripts/check-linux.sh generate   # tests/expected/<arch>/ に書き込み
 set -uo pipefail
 
 mode="${1:-check}"
@@ -43,16 +43,17 @@ else
     fi
 fi
 
-# run_norm <num> <bin> <timeout_secs>
-# Runs a self-terminating sample, captures combined output, normalizes in place.
-# Continues regardless of exit code (output is still diffed later), but warns on
-# unexpected non-zero exits so a crash/hang doesn't hide behind a clean diff.
+# run_norm <番号> <バイナリ名> <タイムアウト秒数>
+# 自己終了型サンプルを実行し、出力を結合して取得し、その場で正規化する。
+# 終了コードにかかわらず続行する（出力は後で diff される）が、
+# 予期しない非ゼロ終了については警告を出す。
+# クラッシュ/ハングがクリーンな diff の背後に隠れないようにするため。
 run_norm() {
     local num="$1" bin="$2" tmo="$3"
     timeout "$tmo" "./$bin" >"$dest/$num.txt" 2>&1
     local rc=$?
-    # 01 exits via raise(SIGINT) under SIG_DFL (rc 130) — expected.
-    # 05 deliberately _exit(128 + SIGSEGV) (rc 139) from its handler — expected.
+    # 01 は SIG_DFL 下での raise(SIGINT) により終了（rc 130）— 想定内。
+    # 05 はハンドラから意図的に _exit(128 + SIGSEGV)（rc 139）— 想定内。
     if [ "$rc" -ne 0 ] && [ "$num" != "01" ] && [ "$num" != "05" ]; then
         echo "[$arch] WARNING: $bin exited rc=$rc (output captured; will be flagged by diff if wrong)" >&2
     fi
@@ -63,7 +64,7 @@ run_norm() {
     fi
 }
 
-# 01 exits via raise(SIGINT) under SIG_DFL — killed by signal (rc 130), expected.
+# 01 は SIG_DFL 下での raise(SIGINT) により終了 — シグナルによる kill（rc 130）、想定内。
 run_norm 01 01_signal_basics 10
 run_norm 02 02_sigaction     10
 run_norm 03 03_blocking      10
@@ -74,12 +75,12 @@ run_norm 08 08_hw_interrupt  15
 run_norm 09 09_fork_exec     10
 run_norm 10 10_signal_safety 15
 
-# 07 is interactive (select() loop). Give it a stdin that never EOFs (an empty
-# FIFO held open by the parent) so select() blocks on it and the ONLY way out
-# is the self-pipe path. Then inject SIGINT and let it shut down via the pipe.
+# 07 は対話的（select() ループ）。EOF にならない stdin（親が保持する空の FIFO）
+# を与えることで select() をブロックさせ、唯一の脱出経路をセルフパイプにする。
+# その後 SIGINT を注入し、パイプ経由でシャットダウンさせる。
 fifo=$(mktemp -u /tmp/07.fifo.XXXXXX)
 mkfifo "$fifo"
-exec 9<>"$fifo"            # keep a write fd open so the read end never sees EOF
+exec 9<>"$fifo"            # 書き込み FD を保持し、読み取り端が EOF を見ないようにする
 ./07_selfpipe >"$dest/07.txt" 2>&1 <"$fifo" &
 pid07=$!
 sleep 0.6

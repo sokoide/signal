@@ -1,26 +1,25 @@
 /*
  * 03_blocking.c
  *
- * Topic: Signal blocking with sigprocmask(), signal sets, and pending signals.
+ * テーマ: sigprocmask()、シグナルセット、保留シグナルによるシグナルブロック。
  *
- * Sometimes a program must perform a short sequence of operations without
- * being interrupted by a signal.  POSIX provides sigprocmask() for this.
- * It is the user-space equivalent of an operating system disabling
- * interrupts around a critical section: signals are still delivered by the
- * kernel, but if they are blocked they remain pending until the process
- * unblocks them.
+ * プログラムは時として、シグナルに中断されずに短い一連の操作を
+ * 実行しなければならない。POSIX はそのために sigprocmask() を提供する。
+ * これは OS がクリティカルセクションの前後で割り込みを禁止/許可する
+ * 処理のユーザ空間版である。カーネルはシグナルを配送し続けるが、
+ * ブロック中はプロセスがブロックを解除するまで保留（pending）状態になる。
  *
- * What is demonstrated:
- *   - sigset_t operations: sigemptyset(), sigfillset(), sigaddset(),
- *     sigdelset(), and sigismember().
- *   - sigprocmask() with SIG_BLOCK, SIG_UNBLOCK, and SIG_SETMASK.
- *   - Blocking SIGINT, raising it while it is blocked, and checking that it
- *     is pending with sigpending().
- *   - The fact that standard signals are not queued: raising a blocked
- *     signal twice results in only one delivery after it is unblocked.
- *   - A simple critical section protected by blocking signals.
+ * デモ内容:
+ *   - sigset_t 操作: sigemptyset()、sigfillset()、sigaddset()、
+ *     sigdelset()、sigismember()。
+ *   - sigprocmask() の SIG_BLOCK、SIG_UNBLOCK、SIG_SETMASK。
+ *   - SIGINT をブロックし、ブロック中に raise し、sigpending() で
+ *     保留中であることを確認する。
+ *   - 標準シグナルはキューイングされない: ブロックされたシグナルを
+ *     2回 raise しても、ブロック解除後の配送は1回だけ。
+ *   - シグナルブロックで保護されたシンプルなクリティカルセクション。
  *
- * Build:
+ * ビルド:
  *   cc -std=c11 -Wall -Wextra -O2 -g -o 03_blocking 03_blocking.c
  */
 
@@ -31,56 +30,13 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include "safe_helpers.h"
+
 /*
- * Counter incremented by the SIGINT handler.  It is volatile sig_atomic_t
- * because it is shared between normal code and an asynchronous handler.
+ * SIGINT ハンドラがインクリメントするカウンタ。
+ * 通常コードと非同期ハンドラで共有されるため、volatile sig_atomic_t。
  */
 static volatile sig_atomic_t sigint_count = 0;
-
-/* Async-signal-safe output helpers. */
-static void safe_write_str(const char* s) {
-    size_t n = 0;
-
-    while (s[n] != '\0') {
-        n++;
-    }
-    ssize_t ret = write(STDOUT_FILENO, s, n);
-    (void)ret;
-}
-
-static void safe_write_int(long long v) {
-    char buf[32];
-    int i = (int)sizeof(buf) - 1;
-    int negative = (v < 0);
-    unsigned long long u;
-    if (negative) {
-        u = 0ULL - (unsigned long long)v; /* avoid LLONG_MIN overflow */
-    } else {
-        u = (unsigned long long)v;
-    }
-
-    buf[i] = '\0';
-    i--;
-
-    if (u == 0) {
-        buf[i] = '0';
-        i--;
-    } else {
-        while (u > 0) {
-            buf[i] = (char)('0' + (u % 10));
-            u /= 10;
-            i--;
-        }
-    }
-
-    if (negative) {
-        buf[i] = '-';
-        i--;
-    }
-
-    ssize_t ret = write(STDOUT_FILENO, &buf[i + 1], sizeof(buf) - 2 - (size_t)i);
-    (void)ret;
-}
 
 static void sigint_handler(int sig) {
     (void)sig;
@@ -101,9 +57,8 @@ int main(void) {
     fflush(stdout);
 
     /*
-     * Install a SIGINT handler.  We use sigaction() because it is the
-     * modern, well-defined API; signal() would also work for this demo but
-     * is discouraged in production code.
+     * SIGINT ハンドラをインストール。このデモでも sigaction() を使う。
+     * signal() でも動作するが、本番コードでは推奨されない。
      */
     sigemptyset(&act.sa_mask);
     act.sa_handler = sigint_handler;
@@ -115,29 +70,30 @@ int main(void) {
     }
 
     /*
-     * Build a signal set containing only SIGINT.
+     * SIGINT のみを含むシグナルセットを構築。
      *
-     * A sigset_t is an opaque bitmask.  Always initialize it with
-     * sigemptyset() or sigfillset() before adding/removing bits.  It is
-     * undefined behavior to use an uninitialized sigset_t.
+     * sigset_t は不透明なビットマスク。ビットを追加/削除する前に
+     * 必ず sigemptyset() または sigfillset() で初期化すること。
+     * 未初期化の sigset_t を使用するのは未定義動作。
      */
     sigemptyset(&set);
     sigaddset(&set, SIGINT);
 
     /*
-     * sigprocmask(SIG_BLOCK, &set, &oldset) adds the signals in `set` to
-     * the process signal mask.  The previous mask is saved in `oldset` so
-     * we can restore it later.
-     * Analogy to low-level OS code:
-     *   sigprocmask(SIG_BLOCK, ...)  ~=  cli   (disable interrupts)
-     *   sigprocmask(SIG_UNBLOCK, ...) ~=  sti   (enable interrupts)
+     * sigprocmask(SIG_BLOCK, &set, &oldset) は `set` 内のシグナルを
+     * プロセスのシグナルマスクに追加する。以前のマスクは `oldset` に
+     * 保存され、後で復元できる。
+     * OS 低レベルのコードとのアナロジー:
+     *   sigprocmask(SIG_BLOCK, ...)  ~=  cli   (割り込み禁止)
+     *   sigprocmask(SIG_UNBLOCK, ...) ~=  sti   (割り込み許可)
      *
-     * Unlike cli/sti, which control the CPU-wide interrupt flag, sigprocmask
-     * only affects the calling process's (or thread's) signal mask. Other
-     * processes and the kernel continue to run normally.
+     * cli/sti が CPU 全体の割り込みフラグを制御するのに対し、
+     * sigprocmask は呼び出し元プロセス（またはスレッド）の
+     * シグナルマスクのみに影響する。他のプロセスやカーネルは
+     * 通常通り動作し続ける。
      *
-     * The kernel still delivers the signal, but if it is masked it is held
-     * in the pending signal set instead of invoking the handler immediately.
+     * カーネルはシグナルを配送し続けるが、マスクされている場合は
+     * ハンドラを起動せずに保留シグナルセットに保持する。
      */
     printf("\nBlocking SIGINT...\n");
     fflush(stdout);
@@ -148,11 +104,11 @@ int main(void) {
     }
 
     /*
-     * Raise SIGINT twice while it is blocked.
+     * SIGINT がブロックされている間に2回 raise する。
      *
-     * Standard signals (like SIGINT) are not queued.  Raising a blocked
-     * signal twice leaves it pending exactly once.  When we later unblock
-     * it, the handler will run only one time.
+     * 標準シグナル（SIGINT など）はキューイングされない。
+     * ブロックされたシグナルを2回 raise しても、保留は正確に1回。
+     * 後でブロック解除すると、ハンドラは1回だけ実行される。
      */
     printf("Raising SIGINT twice while it is blocked...\n");
     fflush(stdout);
@@ -160,9 +116,9 @@ int main(void) {
     raise(SIGINT);
 
     /*
-     * sigpending() retrieves the set of signals that are currently pending
-     * for the calling process.  A signal is pending if it has been
-     * delivered to the process but is currently blocked by the signal mask.
+     * sigpending() は呼び出し元プロセスで現在保留中のシグナルの
+     * セットを取得する。シグナルがプロセスに配送されたが、
+     * シグナルマスクでブロックされている場合に「保留中」となる。
      */
     if (sigpending(&pending) == -1) {
         perror("sigpending");
@@ -177,8 +133,9 @@ int main(void) {
     fflush(stdout);
 
     /*
-     * Unblock SIGINT.  The pending signal is now delivered, and the
-     * handler runs exactly once because standard signals are not queued.
+     * SIGINT のブロックを解除。保留中のシグナルが今配送され、
+     * 標準シグナルはキューイングされないため、ハンドラは正確に
+     * 1回実行される。
      */
     printf("Unblocking SIGINT...\n");
     fflush(stdout);
@@ -192,12 +149,12 @@ int main(void) {
     fflush(stdout);
 
     /*
-     * Critical section pattern.
+     * クリティカルセクションのパターン。
      *
-     * Block the signals that could corrupt our work, perform the sensitive
-     * operation, then restore the previous mask.  This is exactly what an
-     * OS does with cli/sti around a critical section, except in user space
-     * the mask is per-process.
+     * 作業を壊す可能性のあるシグナルをブロックし、重要な操作を
+     * 実行し、以前のマスクを復元する。これは OS がクリティカル
+     * セクションの前後で cli/sti を行うのと正確に同じだが、
+     * ユーザ空間ではマスクがプロセス単位である点が異なる。
      */
     {
         sigset_t crit_set;
@@ -218,9 +175,9 @@ int main(void) {
         }
 
         /*
-         * This is the critical section.  In a real program this might be
-         * updating a linked list, writing two related database records, or
-         * modifying shared state that must stay consistent.
+         * これがクリティカルセクション。実際のプログラムでは、
+         * リンクリストの更新、2つの関連データベースレコードの書き込み、
+         * 一貫性を保たなければならない共有状態の変更などに相当する。
          */
         important_value += 10;
         important_value *= 2;
@@ -229,9 +186,9 @@ int main(void) {
         fflush(stdout);
 
         /*
-         * Restore the previous signal mask.  SIG_SETMASK replaces the
-         * entire mask with the saved mask.  This is safer than SIG_UNBLOCK
-         * when the mask at entry is unknown.
+         * 以前のシグナルマスクを復元。SIG_SETMASK はマスク全体を
+         * 保存されたマスクで置き換える。これはエントリ時点のマスクが
+         * 不明な場合に SIG_UNBLOCK よりも安全。
          */
         if (sigprocmask(SIG_SETMASK, &oldset, NULL) == -1) {
             perror("sigprocmask(SIG_SETMASK)");
@@ -242,11 +199,11 @@ int main(void) {
     }
 
     /*
-     * Demonstrate the remaining sigset_t operations.
+     * 残りの sigset_t 操作のデモ。
      *
-     * sigfillset() puts every signal in the set.
-     * sigdelset() removes a signal.
-     * sigismember() tests membership.
+     * sigfillset() はすべてのシグナルをセットに追加する。
+     * sigdelset() はシグナルを削除する。
+     * sigismember() は所属をテストする。
      */
     {
         sigset_t full;

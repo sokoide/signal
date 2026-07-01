@@ -1,30 +1,30 @@
-# Normalize volatile output values for deterministic comparison.
-# Consumed by check-linux.sh with GNU sed (`sed -i -f`), inside the Linux VM.
+# 変動する出力値を決定論的な比較のために正規化する。
+# Linux VM 内で GNU sed と共に check-linux.sh から使用される（`sed -i -f`）。
 #
-# Volatile sources:
-#   - PIDs / UIDs (process- and run-dependent)
-#   - addresses dumped from ucontext_t / si_addr (ASLR, arch pointer width)
-#   - CPU-speed-dependent timer counts (04 busy loop)
-
-# PIDs and UIDs in the forms the samples print them.
+# 変動源:
+#   - PID / UID（プロセス実行ごとに変化）
+#   - ucontext_t / si_addr からのアドレス（ASLR、アーキテクチャポインタ幅）
+#   - CPU 速度に依存するタイマカウント（04 ビジーループ）
+#
+# サンプルが出力する形式の PID と UID。
 s/PID: [0-9][0-9]*/PID: <PID>/g
 s/PID=[0-9][0-9]*/PID=<PID>/g
 s/si_pid=[0-9][0-9]*/si_pid=<PID>/g
 s/si_uid=[0-9][0-9]*/si_uid=<UID>/g
 s/ppid=[0-9][0-9]*/ppid=<PID>/g
-# 07 prints "kill -INT <pid>" / "kill -TERM <pid>" instructions.
+# 07 は "kill -INT <pid>" / "kill -TERM <pid>" の指示を表示。
 s/kill -INT [0-9][0-9]*/kill -INT <PID>/g
 s/kill -TERM [0-9][0-9]*/kill -TERM <PID>/g
 
-# Hex addresses (8+ hex digits) — 02 si_addr, 08 saved PC/SP/FP.
+# 16進アドレス（8桁以上の16進数）— 02 si_addr、08 保存 PC/SP/FP。
 s/0x[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*/0x<ADDR>/g
 
-# 04: VIRTUAL timer fires N times during the busy loop — N depends on CPU speed.
+# 04: VIRTUAL タイマがビジーループ中に N 回発火 — N は CPU 速度に依存。
 s/fired [0-9][0-9]* times during busy loop/fired <N> times during busy loop/g
 
-# 05/09: SIGSTKSZ value — libc/arch-dependent (glibc aarch64=20480, x86_64=8192;
-# glibc >=2.34 runtime-evaluated; musl differs). Normalize so expected outputs
-# don't depend on the build environment's libc. "size" only appears in the
-# alternate-stack context in these samples, so the context is unambiguous.
+# 05/09: SIGSTKSZ 値 — libc/アーキテクチャ依存（glibc aarch64=20480、x86_64=8192;
+# glibc >=2.34 では実行時評価; musl も異なる）。期待出力がビルド環境の libc に
+# 依存しないよう正規化する。"size" はこれらのサンプルの代替スタックコンテキスト
+# でのみ出現するため、コンテキストは明確。
 s/size [0-9][0-9]* bytes/size <SIGSTKSZ> bytes/g
 s/size [0-9][0-9]*$/size <SIGSTKSZ>/g

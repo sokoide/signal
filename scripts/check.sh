@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Host-side test orchestrator.
-# For each OrbStack Linux machine: build, run all samples, normalize, and
-# (in check mode) diff against the committed expected outputs.
+# ホスト側のテスト統括スクリプト。
+# 各 OrbStack Linux マシンで: ビルド、全サンプル実行、正規化し、
+# （チェックモードでは）コミット済み期待出力と diff する。
 #
-# Usage:
-#   scripts/check.sh           # run tests, diff vs tests/expected/
-#   scripts/check.sh generate  # regenerate tests/expected/ (commit after review)
+# 使い方:
+#   scripts/check.sh           # テスト実行、tests/expected/ と diff
+#   scripts/check.sh generate  # tests/expected/ を再生成（確認後にコミット）
 set -uo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -27,7 +27,7 @@ if [ "$mode" = "generate" ]; then
     exit "$rc"
 fi
 
-# Compare each generated output against the committed expected file.
+# 生成された各出力をコミット済み期待ファイルと比較。
 for arch in aarch64 x86_64; do
     for exp in tests/expected/$arch/*.txt; do
         [ -e "$exp" ] || continue

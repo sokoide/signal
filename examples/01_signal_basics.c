@@ -1,30 +1,30 @@
 /*
  * 01_signal_basics.c
  *
- * Topic: Basic signal handling with signal() and raise().
+ * テーマ: signal() と raise() による基本的なシグナル処理。
  *
- * This program is intentionally small.  It shows the oldest, simplest
- * portable signal API: signal(2) and raise(3).  In real code you should
- * prefer sigaction(2) (see 02_sigaction.c), but signal() is still useful
- * for a first exposure because the ideas map one-to-one to the modern API.
+ * このプログラムは意図的に小さい。最も古く、最もシンプルな移植性のある
+ * シグナルAPIである signal(2) と raise(3) を示す。
+ * 実際のコードでは sigaction(2)（02_sigaction.c 参照）を使うべきだが、
+ * signal() は初めて学ぶ際に概念がモダンAPIと一対一対応するため、
+ * 最初の導入として依然として有用。
  *
- * What is demonstrated:
- *   - Registering a handler with signal().
- *   - A handler receives the signal number as its int argument.
- *   - raise() sends a signal to the calling process itself.
- *   - The default action of SIGINT (interrupt from terminal) and SIGTERM
- *     (polite termination request) is to terminate the process.
- *   - SIG_IGN ignores a signal; SIG_DFL restores the default action.
- *   - SIGKILL cannot be caught, blocked, or ignored.
- *   - Why you must use write() inside a signal handler instead of printf().
- *   - A flag shared between a handler and normal code must be
- *     volatile sig_atomic_t.
+ * デモ内容:
+ *   - signal() でハンドラを登録する。
+ *   - ハンドラがシグナル番号を int 引数として受け取る。
+ *   - raise() が呼び出し元プロセス自身にシグナルを送る。
+ *   - SIGINT（端末からの割り込み）と SIGTERM（終了要求）の
+ *     デフォルト動作はプロセスを終了させる。
+ *   - SIG_IGN はシグナルを無視する。SIG_DFL はデフォルト動作に戻す。
+ *   - SIGKILL は捕捉・ブロック・無視のいずれもできない。
+ *   - シグナルハンドラ内では printf() ではなく write() を使わねばならない理由。
+ *   - ハンドラと通常コードで共有するフラグは volatile sig_atomic_t でなければならない。
  *
- * Build:
+ * ビルド:
  *   cc -std=c11 -Wall -Wextra -O2 -g -o 01_signal_basics 01_signal_basics.c
  */
 
-/* Ask for POSIX.1-2008 interfaces such as the modern sigaction type. */
+/* POSIX.1-2008 インタフェース（例: モダンな sigaction 型）を有効化 */
 #define _POSIX_C_SOURCE 200809L
 
 #include <errno.h>
@@ -34,94 +34,31 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "safe_helpers.h"
+
 /*
- * A flag that is written by the signal handler and read by main().
+ * シグナルハンドラが書き込み、main() が読み取るフラグ。
  *
- * Why volatile?  Because the compiler cannot see the call site of a signal
- * handler; without volatile it might cache the value in a register and never
- * notice that the handler changed it.
+ * なぜ volatile か？ コンパイラはシグナルハンドラの呼び出し箇所を
+ * 認識できない。volatile がなければ、レジスタに値をキャッシュして
+ * ハンドラによる変更に気づかない可能性がある。
  *
- * Why sig_atomic_t?  This is the only C type that is guaranteed to be read
- * and written atomically with respect to asynchronous signal delivery on
- * every POSIX implementation.  For a simple flag it is exactly what we need.
+ * なぜ sig_atomic_t か？ これはあらゆる POSIX 実装において、
+ * 非同期シグナル配送に対して読み書きが不可分であることが保証される
+ * 唯一の C の型。単純なフラグとしてこれで十分。
  */
 static volatile sig_atomic_t got_sigint = 0;
 
 /*
- * Async-signal-safe string write helper.
+ * SIGINT ハンドラ。
  *
- * Inside a signal handler you may only call functions that are marked
- * "async-signal-safe" by POSIX.  write() is safe; printf()/fprintf() are
- * NOT safe because they use buffered streams that may hold locks or call
- * malloc(), and the signal may have interrupted the program while it was
- * already holding one of those locks.  Calling printf() from a handler is
- * a classic way to deadlock or corrupt the heap.
- */
-static void safe_write_str(const char* s) {
-    size_t n = 0;
-
-    while (s[n] != '\0') {
-        n++;
-    }
-
-    /* write() returns the number of bytes written; we ignore errors here
-     * because there is very little useful recovery possible from inside a
-     * handler. */
-    ssize_t ret = write(STDOUT_FILENO, s, n);
-    (void)ret;
-}
-
-/*
- * Async-signal-safe integer printer.
- *
- * We build the decimal representation in a local buffer using only basic
- * arithmetic, then call write().  This avoids snprintf(), which is not in
- * the async-signal-safe list.
- */
-static void safe_write_int(long long v) {
-    char buf[32];
-    int i = (int)sizeof(buf) - 1;
-    int negative = (v < 0);
-    unsigned long long u;
-    if (negative) {
-        u = 0ULL - (unsigned long long)v; /* avoid LLONG_MIN overflow */
-    } else {
-        u = (unsigned long long)v;
-    }
-
-    buf[i] = '\0';
-    i--;
-
-    if (u == 0) {
-        buf[i] = '0';
-        i--;
-    } else {
-        while (u > 0) {
-            buf[i] = (char)('0' + (u % 10));
-            u /= 10;
-            i--;
-        }
-    }
-
-    if (negative) {
-        buf[i] = '-';
-        i--;
-    }
-
-    ssize_t ret = write(STDOUT_FILENO, &buf[i + 1], sizeof(buf) - 2 - (size_t)i);
-    (void)ret;
-}
-
-/*
- * Our SIGINT handler.
- *
- * The int argument is the signal number that was delivered.  In this file
- * we only register this for SIGINT, but a handler can be shared by many
- * signals and use the argument to tell them apart.
+ * int 引数は配送されたシグナル番号。このファイルでは SIGINT のみ
+ * 登録しているが、ハンドラは複数のシグナルで共有し、引数で
+ * 区別することもできる。
  */
 static void sigint_handler(int sig) {
-    /* Mark that we have seen the signal.  This assignment is safe because
-     * got_sigint is volatile sig_atomic_t. */
+    /* シグナルを受け取ったことを記録。got_sigint が volatile
+     * sig_atomic_t なのでこの代入は安全。 */
     got_sigint = 1;
 
     safe_write_str("[handler] Caught signal ");
@@ -131,16 +68,43 @@ static void sigint_handler(int sig) {
 }
 
 int main(void) {
-    /* Print the PID so a curious reader can send signals from another
-     * terminal with `kill -INT <pid>`. */
+    /* ====================================================================
+     * 概念: シグナルとは何か？
+     *
+     * シグナルは OS がプロセスに送る非同期通知。
+     * ユーザ空間におけるハードウェア割り込みの相当物:
+     *   - HW 割り込み: CPU に通知、ISR を実行
+     *   - シグナル:     プロセスに通知、ハンドラを実行
+     * ==================================================================== */
+    printf("=== 概念: シグナルとは何か ===\n");
+    printf("シグナル = OS がプロセスに送る非同期通知\n");
+    printf("HW 割り込み: CPU に通知、ISR を実行\n");
+    printf("シグナル:    プロセスに通知、ハンドラを実行\n");
+    printf("\n");
+
+    /* ====================================================================
+     * 重要: ハンドラ内で printf() ではなく write() を使う理由
+     *
+     * シグナルハンドラ内では async-signal-safe な関数のみ呼び出せる。
+     * printf() は安全ではない。バッファリングされたストリームを使い、
+     * ロックを保持したり malloc() を呼び出したりするため。
+     * シグナルはロック保持中に割り込む可能性がある。
+     * write() は async-signal-safe であり、正しい選択。
+     * ==================================================================== */
+    printf("=== 注意: ハンドラ内では printf を使ってはいけない ===\n");
+    printf("printf はバッファを持つため async-signal-safe でない\n");
+    printf("代わりに write() を使用（safe_write_str/int ヘルパー）\n");
+    printf("\n");
+
+    /* 別の端末から `kill -INT <pid>` でシグナルを送れるよう PID を表示 */
     printf("PID: %ld\n", (long)getpid());
     fflush(stdout);
 
     /*
-     * SIGKILL and SIGSTOP are special: they can never be caught, blocked,
-     * or ignored.  The kernel enforces this so that there is always a way
-     * to stop a runaway process.  signal() returns SIG_ERR and sets errno
-     * to EINVAL when asked to handle SIGKILL.
+     * SIGKILL と SIGSTOP は特別: 捕捉・ブロック・無視のいずれも不可。
+     * カーネルがこれを強制することで、暴走プロセスを止める手段が
+     * 常に存在するようにしている。signal() は SIGKILL に対して
+     * SIG_ERR を返し、errno を EINVAL に設定する。
      */
     printf("Trying to catch SIGKILL (this must fail)...\n");
     if (signal(SIGKILL, sigint_handler) == SIG_ERR) {
@@ -150,13 +114,13 @@ int main(void) {
     fflush(stdout);
 
     /*
-     * Register our handler for SIGINT.
+     * SIGINT のハンドラを登録。
      *
-     * signal() is the historical API.  Its behavior varies subtly between
-     * System V (handler is reset to SIG_DFL after the first delivery) and
-     * BSD (handler remains installed).  Modern glibc follows BSD semantics
-     * by default, but you cannot rely on that across all Unices.  That is
-     * the main reason sigaction() is recommended for real programs.
+     * signal() は古典的な API。その動作は System V（初回配送後に
+     * ハンドラが SIG_DFL に戻る）と BSD（ハンドラが維持される）で
+     * 微妙に異なる。モダンな glibc はデフォルトで BSD セマンティクスに
+     * 従うが、すべての Unix でそれを期待してはならない。
+     * これが実プログラムで sigaction() が推奨される主な理由。
      */
     printf("Registering SIGINT handler with signal()...\n");
     if (signal(SIGINT, sigint_handler) == SIG_ERR) {
@@ -165,13 +129,13 @@ int main(void) {
     }
     fflush(stdout);
 
-    /* raise() sends the given signal to the calling thread/process.
-     * It is exactly equivalent to kill(getpid(), SIGINT). */
+    /* raise() は指定されたシグナルを呼び出し元スレッド/プロセスに送る。
+     * kill(getpid(), SIGINT) と完全に等価。 */
     printf("Raising SIGINT to ourselves...\n");
     fflush(stdout);
     raise(SIGINT);
 
-    /* When the handler returns, execution resumes here. */
+    /* ハンドラが戻ると、実行はここに再開する。 */
     if (got_sigint) {
         printf("Main: handler ran and set got_sigint.\n");
     } else {
@@ -180,9 +144,9 @@ int main(void) {
     fflush(stdout);
 
     /*
-     * SIG_IGN installs the "ignore" disposition.  SIGINT will be delivered,
-     * but its default action is suppressed.  The program continues as if
-     * nothing happened.
+     * SIG_IGN は「無視」の処理方法を設定する。SIGINT は配送されるが、
+     * デフォルト動作が抑止される。プログラムは何もなかったかのように
+     * 続行する。
      */
     printf("Setting SIGINT to SIG_IGN and raising it again...\n");
     if (signal(SIGINT, SIG_IGN) == SIG_ERR) {
@@ -195,9 +159,9 @@ int main(void) {
     fflush(stdout);
 
     /*
-     * SIG_DFL restores the default action.  For SIGINT the default is to
-     * terminate the process.  After this line, raising SIGINT ends the
-     * program; the final printf() will not execute.
+     * SIG_DFL はデフォルト動作に戻す。SIGINT のデフォルトは
+     * プロセスの終了。この行以降、raise(SIGINT) はプログラムを
+     * 終了させる。最後の printf() は実行されない。
      */
     printf("Restoring SIGINT to SIG_DFL and raising it one last time...\n");
     fflush(stdout);
@@ -207,8 +171,7 @@ int main(void) {
     }
     raise(SIGINT);
 
-    /* This line is unreachable because the default action of SIGINT is to
-     * terminate the process. */
+    /* SIGINT のデフォルト動作はプロセス終了なので、この行には到達しない。 */
     printf("This line should never be printed.\n");
     return EXIT_SUCCESS;
 }

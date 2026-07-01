@@ -1,39 +1,41 @@
 /*
  * 09_fork_exec.c
  *
- * Topic: Signal disposition inheritance across fork() and exec().
+ * テーマ: fork() と exec() をまたぐシグナル処理方法の継承。
  *
- * POSIX defines exactly what survives when a process forks or execs another
- * program.  This program demonstrates each rule with concrete output:
+ * POSIX は、プロセスが fork したり別のプログラムを exec したりしたときに
+ * 何が生存するかを正確に定義している。このプログラムは各ルールを
+ * 具体的な出力で示す:
  *
  *   fork():
- *     - Signal handlers are inherited (the child starts with the same
- *       handler function pointers as the parent).
- *     - The signal mask is inherited.
- *     - Pending signals are *NOT* inherited; the child's pending set is
- *       cleared at the moment of fork().
- *     - The alternate signal stack (sigaltstack()) is inherited on many
- *       systems such as Linux, but is implementation-defined; on some
- *       platforms (e.g. macOS) it is cleared for the child.
+ *     - シグナルハンドラは継承される（子プロセスは親と同じハンドラ
+ *       関数ポインタで開始する）。
+ *     - シグナルマスクは継承される。
+ *     - 保留シグナルは *継承されない*。子の保留セットは fork() の
+ *       瞬間にクリアされる。
+ *     - 代替シグナルスタック（sigaltstack()）は Linux など多くの
+ *       システムで継承されるが、実装定義。一部のプラットフォーム
+ *       （例: macOS）では子でクリアされる。
  *
  *   exec():
- *     - Signal handlers for caught signals are reset to SIG_DFL.
- *     - Signal handlers that were set to SIG_IGN stay ignored.
- *     - The signal mask is preserved.
- *     - The alternate signal stack is cleared (disabled).
+ *     - 捕捉用に設定されたシグナルハンドラは SIG_DFL にリセットされる。
+ *     - SIG_IGN に設定されたシグナルハンドラは無視されたまま。
+ *     - シグナルマスクは保持される。
+ *     - 代替シグナルスタックはクリア（無効化）される。
  *
- * Usage:
+ * 使い方:
  *   cc -std=c11 -Wall -Wextra -O2 -g 09_fork_exec.c -o 09_fork_exec
  *   ./09_fork_exec
  *
- * The program re-executes itself with the "--after-exec" argument so that
- * the post-exec state can be inspected inside the same binary.
+ * プログラムは "--after-exec" 引数で自身を再実行し、exec 後の状態を
+ * 同じバイナリ内で検査できるようにする。
  */
 
-/* Feature-test macros are declared here so this file builds standalone with
- * the bare "cc ..." command above, independent of the Makefile.
- *   macOS: _DARWIN_C_SOURCE exposes SIGSTKSZ (used by the sigaltstack demo).
- *   Linux: _GNU_SOURCE exposes the same family of interfaces uniformly. */
+/* 機能テストマクロはこのファイルが Makefile とは独立して
+ * 上記の "cc ..." コマンドだけでスタンドアロンでビルドできるよう
+ * ここで宣言する。
+ *   macOS: _DARWIN_C_SOURCE は SIGSTKSZ を公開する（sigaltstack デモで使用）。
+ *   Linux: _GNU_SOURCE は同様のインタフェース群を統一的に公開する。 */
 #if (defined(__APPLE__) && defined(__MACH__))
 #ifndef _DARWIN_C_SOURCE
 #define _DARWIN_C_SOURCE
@@ -51,18 +53,17 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-/* Holds the malloc'd alternate signal stack so we can free it on clean exit. */
+/* malloc した代替シグナルスタックを保持。クリーン終了時に解放するため。 */
 static void* alt_stack_mem = NULL;
 
-/* A tiny handler installed for SIGUSR1 in the parent. */
+/* 親プロセスで SIGUSR1 用にインストールする小さなハンドラ */
 static void usr1_handler(int sig) {
-    (void)sig; /* unused; silence -Wextra */
+    (void)sig; /* 未使用; -Wextra 警告抑制 */
 }
 
 /*
- * Print a single-line description of a signal disposition.
- * We query with sigaction() without changing the disposition by passing
- * NULL as the second argument (the new action).
+ * シグナルの処理方法を1行で表示する。
+ * sigaction() に第2引数 NULL を渡すことで、処理方法を変更せずに問い合わせる。
  */
 static void print_disposition(int sig, const char* name) {
     struct sigaction old;
@@ -77,12 +78,12 @@ static void print_disposition(int sig, const char* name) {
     } else if (old.sa_handler == SIG_IGN) {
         printf("SIG_IGN (ignored)\n");
     } else {
-        /* Function pointers print as an address. */
+        /* 関数ポインタはアドレスとして表示 */
         printf("caught by %p\n", (void*)old.sa_handler);
     }
 }
 
-/* Print whether a signal is currently blocked in the caller's mask. */
+/* 呼び出し元のマスクでシグナルが現在ブロックされているか表示 */
 static void print_blocked(int sig, const char* name) {
     sigset_t mask;
     if (sigprocmask(SIG_BLOCK, NULL, &mask) == -1) {
@@ -94,7 +95,7 @@ static void print_blocked(int sig, const char* name) {
            sigismember(&mask, sig) ? "BLOCKED" : "NOT blocked");
 }
 
-/* Print the current alternate signal stack state. */
+/* 現在の代替シグナルスタック状態を表示 */
 static void print_alt_stack(void) {
     stack_t ss;
     if (sigaltstack(NULL, &ss) == -1) {
@@ -110,7 +111,7 @@ static void print_alt_stack(void) {
     }
 }
 
-/* Print the current pending signal set in human-readable form. */
+/* 現在の保留シグナルセットを人間可読形式で表示 */
 static void print_pending(void) {
     sigset_t pending;
     if (sigpending(&pending) == -1) {
@@ -131,8 +132,8 @@ static void print_pending(void) {
 }
 
 /*
- * Display the complete signal environment of the current process.
- * This is called from three different execution contexts in the demo.
+ * 現在のプロセスの完全なシグナル環境を表示。
+ * デモ内の3つの異なる実行コンテキストから呼ばれる。
  */
 static void print_status(const char* label) {
     printf("\n== %s ==\n", label);
@@ -143,7 +144,7 @@ static void print_status(const char* label) {
     print_alt_stack();
 }
 
-/* Set a signal handler using sigaction(). */
+/* sigaction() を使用してシグナルハンドラを設定 */
 static void set_handler(int sig, void (*handler)(int)) {
     struct sigaction sa;
     sigemptyset(&sa.sa_mask);
@@ -155,7 +156,7 @@ static void set_handler(int sig, void (*handler)(int)) {
     }
 }
 
-/* Set a signal disposition to SIG_IGN using sigaction(). */
+/* sigaction() を使用してシグナル処理方法を SIG_IGN に設定 */
 static void set_ignore(int sig) {
     struct sigaction sa;
     sigemptyset(&sa.sa_mask);
@@ -167,7 +168,7 @@ static void set_ignore(int sig) {
     }
 }
 
-/* Block or unblock a single signal. */
+/* 単一のシグナルをブロックまたはブロック解除 */
 static void set_block(int sig, int block) {
     sigset_t set;
     sigemptyset(&set);
@@ -178,13 +179,13 @@ static void set_block(int sig, int block) {
     }
 }
 
-/* Install an alternate signal stack. */
+/* 代替シグナルスタックをインストール */
 static void setup_alt_stack(void) {
     stack_t ss;
-    /* SIGSTKSZ is the typical size recommended for an alternate stack.
-     * On glibc >= 2.34 it may be a non-constant expression; on those
-     * systems you may need to allocate dynamically based on sysconf().
-     * For this demo we use SIGSTKSZ directly. */
+    /* SIGSTKSZ は代替スタックに推奨される標準的なサイズ。
+     * glibc >= 2.34 では定数式でない可能性がある。その場合は
+     * sysconf() に基づいて動的に割り当てる必要がある。
+     * このデモでは SIGSTKSZ を直接使用。 */
     ss.ss_size = SIGSTKSZ;
     alt_stack_mem = malloc(ss.ss_size);
     if (alt_stack_mem == NULL) {
@@ -200,8 +201,8 @@ static void setup_alt_stack(void) {
 }
 
 /*
- * This branch runs after the child calls exec() with the argument
- * "--after-exec".  It shows the signal state that survives an exec.
+ * 子プロセスが "--after-exec" 引数で exec() を呼んだ後に実行される分岐。
+ * exec 後も生存するシグナル状態を表示する。
  */
 static int after_exec_branch(void) {
     print_status("After exec() in child");
@@ -210,16 +211,16 @@ static int after_exec_branch(void) {
 }
 
 /*
- * The main demonstration branch.  It prepares the parent's signal
- * environment, forks, and lets the child inspect and then exec itself.
+ * メインのデモ分岐。親のシグナル環境を準備し、fork し、
+ * 子に検査させてから自身を exec させる。
  */
 static int main_branch(char* argv0) {
     /*
-     * 1. Parent setup:
-     *    - Catch SIGUSR1.
-     *    - Ignore SIGPIPE.
-     *    - Block SIGUSR2.
-     *    - Set up an alternate signal stack.
+     * 1. 親の設定:
+     *    - SIGUSR1 を捕捉。
+     *    - SIGPIPE を無視。
+     *    - SIGUSR2 をブロック。
+     *    - 代替シグナルスタックを設定。
      */
     set_handler(SIGUSR1, usr1_handler);
     set_ignore(SIGPIPE);
@@ -227,9 +228,9 @@ static int main_branch(char* argv0) {
     setup_alt_stack();
 
     /*
-     * Demonstrate pending-signal inheritance rules.
-     * We raise SIGUSR2 while it is blocked, so it becomes pending in the
-     * parent only.  fork() will *not* copy this pending signal to the child.
+     * 保留シグナルの継承ルールを示す。
+     * SIGUSR2 をブロック中に raise すると、親でのみ保留状態になる。
+     * fork() はこの保留シグナルを子に *コピーしない*。
      */
     if (raise(SIGUSR2) != 0) {
         perror("raise");
@@ -239,14 +240,14 @@ static int main_branch(char* argv0) {
     printf("Parent state before fork():\n");
     print_status("Parent before fork()");
     /*
-     * Flush stdout before forking so the child does not inherit a buffered
-     * copy of the lines above and print them again.
+     * fork の前に stdout をフラッシュし、子が上記の行のバッファリングされた
+     * コピーを継承して再表示するのを防ぐ。
      */
     fflush(stdout);
 
     /*
-     * 2. fork() creates a child that is an exact copy of the parent's
-     *    memory and signal state, except that pending signals are cleared.
+     * 2. fork() は親のメモリとシグナル状態の正確なコピーである子を作成する。
+     *    ただし、保留シグナルはクリアされる。
      */
     pid_t pid = fork();
     if (pid == -1) {
@@ -256,36 +257,36 @@ static int main_branch(char* argv0) {
 
     if (pid == 0) {
         /*
-         * Child process.
+         * 子プロセス。
          *
-         * Because of copy-on-write, the address of usr1_handler is the
-         * same as in the parent and the signal mask is copied.
-         * SIGUSR2, raised before fork(), should NOT be pending here
-         * because pending signals are cleared for the child.
+         * コピーオンライトにより、usr1_handler のアドレスは親と同じで、
+         * シグナルマスクもコピーされる。
+         * fork() 前に raise された SIGUSR2 はここでは保留状態になるべきでない。
+         * なぜなら保留シグナルは子でクリアされるため。
          *
-         * The alternate stack may or may not be inherited depending on the
-         * operating system (inherited on Linux, cleared on macOS).
+         * 代替スタックの継承はオペレーティングシステムに依存する
+         * （Linux では継承、macOS ではクリアされる）。
          */
         print_status("After fork() in child");
         fflush(stdout);
 
         /*
-         * 3. exec() the same binary with "--after-exec".
+         * 3. "--after-exec" で同じバイナリを exec() する。
          *
-         * After exec():
-         *   - Caught handlers (SIGUSR1) revert to SIG_DFL.
-         *   - Ignored handlers (SIGPIPE) remain SIG_IGN.
-         *   - The signal mask is preserved.
-         *   - The alternate stack is cleared.
+         * exec() 後:
+         *   - 捕捉ハンドラ（SIGUSR1）は SIG_DFL に戻る。
+         *   - 無視ハンドラ（SIGPIPE）は SIG_IGN のまま。
+         *   - シグナルマスクは保持される。
+         *   - 代替スタックはクリアされる。
          */
         execl(argv0, argv0, "--after-exec", (char*)NULL);
 
-        /* execl() only returns on failure. */
+        /* execl() は失敗時にのみ戻る */
         perror("execl");
         _exit(EXIT_FAILURE);
     }
 
-    /* Parent: wait for the child to finish the demo. */
+    /* 親: 子のデモ終了を待つ */
     int status;
     if (waitpid(pid, &status, 0) == -1) {
         perror("waitpid");
@@ -317,8 +318,7 @@ static int main_branch(char* argv0) {
 
 int main(int argc, char* argv[]) {
     /*
-     * argv[0] is used to re-exec ourselves.  If it is missing, we cannot
-     * continue the demonstration.
+     * argv[0] は自身の再実行に使用される。欠けているとデモを続行できない。
      */
     if (argc > 1 && strcmp(argv[1], "--after-exec") == 0) {
         return after_exec_branch();

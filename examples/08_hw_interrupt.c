@@ -1,64 +1,65 @@
 /*
- * 08_hw_interrupt.c — Structural equivalence of HW interrupts and POSIX signals
+ * 08_hw_interrupt.c — HW 割り込みと POSIX シグナルの構造的等価性
  *
- * This is the central example of the repository.
+ * このリポジトリの中心的なサンプル。
  *
- * It demonstrates that a POSIX signal handler is, structurally, a close
- * user-space analogue of a CPU hardware-interrupt service routine (ISR).
+ * POSIX シグナルハンドラが、CPU ハードウェア割り込みサービスルーチン（ISR）
+ * と構造的に近いユーザ空間版であることを示す。
  *
- * Hardware interrupt flow (x86_64)        POSIX signal flow
- * ------------------------------          -------------------
- * 1. Device raises IRQ (timer PIT)        1. kill() / setitimer() generates
- * signal
- * 2. CPU pushes SS:RSP/RFLAGS/CS:RIP      2. Kernel saves full register state
- *    onto the kernel stack                    into a ucontext_t (signal frame)
- * 3. CPU uses IDT[vector] to find ISR     3. Kernel uses sigaction table
- * 4. ISR executes                         4. Signal handler executes
- * 5. iret restores registers, resumes     5. sigreturn() restores ucontext_t,
- *    main program                              resumes main program
+ * ハードウェア割り込みの流れ (x86_64)        POSIX シグナルの流れ
+ * ------------------------------             -------------------
+ * 1. デバイスが IRQ を発生 (タイマ PIT)      1. kill() / setitimer() がシグナルを生成
+ * 2. CPU が SS:RSP/RFLAGS/CS:RIP を          2. カーネルが完全なレジスタ状態を
+ *    カーネルスタックにプッシュ                  ucontext_t（シグナルフレーム）に保存
+ * 3. CPU が IDT[ベクタ] で ISR を検索       3. カーネルが sigaction テーブルを参照
+ * 4. ISR を実行                              4. シグナルハンドラを実行
+ * 5. iret でレジスタ復元、メインプログラム   5. sigreturn() で ucontext_t を復元、
+ *    再開                                        メインプログラム再開
  *
- * In this program, SIGVTALRM driven by setitimer(ITIMER_VIRTUAL) acts as a
- * "timer interrupt" for the process.  The handler receives the third argument
- * ucontext_t*, which is the trap frame: the complete saved CPU context of the
- * interrupted user code.  We print the program counter (RIP), stack pointer
- * (RSP), and frame pointer (RBP) to show that the kernel really did freeze the
- * main program in the middle of its execution.
+ * このプログラムでは、setitimer(ITIMER_VIRTUAL) による SIGVTALRM が
+ * プロセスの「タイマ割り込み」として機能する。ハンドラは第3引数
+ * ucontext_t* を受け取る。これはトラップフレーム:
+ * 割り込みされたユーザコードの完全な保存 CPU コンテキスト。
+ * プログラムカウンタ（PC）、スタックポインタ（SP）、フレームポインタ（FP）を
+ * 表示することで、カーネルが本当にメインプログラムの実行を途中で
+ * 凍結したことを示す。
  *
- * Why only write() in the handler?
+ * なぜハンドラ内で write() だけを使うか？
  * --------------------------------
- * A signal handler can interrupt the main program at any moment, even while
- * the main program holds a stdio or malloc lock.  Using printf/malloc/etc.
- * inside the handler can deadlock or corrupt state.  write(2) is one of the
- * few POSIX functions guaranteed to be async-signal-safe, so we use it for
- * all handler output.
+ * シグナルハンドラはいつでもメインプログラムに割り込める。メインプログラムが
+ * stdio や malloc のロックを保持している最中でも同様。ハンドラ内で
+ * printf/malloc などを使うとデッドロックや状態破損を起こす。
+ * write(2) は async-signal-safe が保証される数少ない POSIX 関数の一つなので、
+ * すべてのハンドラ出力に使用する。
  *
- * Note on ucontext_t
+ * ucontext_t に関する注記
  * ------------------
- * ucontext_t and getcontext()/setcontext() were removed from POSIX.1-2008.
- * They remain widely available on Linux and macOS, but new portable code
- * should consider alternative mechanisms.  We use ucontext_t here because
- * it is the most direct way to visualize the saved CPU context.
+ * ucontext_t と getcontext()/setcontext() は POSIX.1-2008 で削除された。
+ * Linux と macOS では引き続き広く利用可能だが、新しい移植性のあるコードでは
+ * 代替メカニズムを検討すべき。ここでは保存 CPU コンテキストを可視化する
+ * 最も直接的な方法として ucontext_t を使用する。
  *
- * Build:  cc -std=c11 -Wall -Wextra -O2 -g examples/08_hw_interrupt.c -o
- * 08_hw_interrupt Run:    ./08_hw_interrupt
+ * ビルド: cc -std=c11 -Wall -Wextra -O2 -g examples/08_hw_interrupt.c -o
+ * 08_hw_interrupt
+ * 実行:  ./08_hw_interrupt
  *
- * Platform notes
+ * プラットフォーム備考
  * --------------
- * - Linux glibc x86_64:   uc_mcontext is embedded; regs via
- * gregs[REG_RIP/RSP/RBP].
- * - Linux glibc aarch64:  uc_mcontext is embedded; regs via .pc/.sp/.regs[29].
- * - macOS x86_64:         uc_mcontext is a POINTER; deref to
- * __ss.__rip/__rsp/__rbp.
- * - macOS ARM64 (Apple):  uc_mcontext is a POINTER; deref to
- * __ss.__pc/__sp/__fp.
+ * - Linux glibc x86_64:   uc_mcontext は埋め込み; レジスタは
+ * gregs[REG_RIP/RSP/RBP] 経由。
+ * - Linux glibc aarch64:  uc_mcontext は埋め込み; レジスタは .pc/.sp/.regs[29] 経由。
+ * - macOS x86_64:         uc_mcontext は POINTER; デリファレンスして
+ * __ss.__rip/__rsp/__rbp。
+ * - macOS ARM64 (Apple):  uc_mcontext は POINTER; デリファレンスして
+ * __ss.__pc/__sp/__fp。
  */
 
 /*
- * macOS: <ucontext.h> requires _XOPEN_SOURCE (the routines are deprecated and
- *   gated behind that macro). _DARWIN_C_SOURCE ensures SIGSTKSZ / ucontext on
- *   older macOS versions.
- * Linux: _GNU_SOURCE is needed for ucontext_t and the register macros
- *   (gregs, REG_RIP, etc.) exposed by <sys/ucontext.h>.
+ * macOS: <ucontext.h> には _XOPEN_SOURCE が必要（ルーチンは非推奨で
+ *   そのマクロの背後にゲートされている）。_DARWIN_C_SOURCE は古い macOS
+ *   で SIGSTKSZ / ucontext を確実にする。
+ * Linux: _GNU_SOURCE は ucontext_t とレジスタマクロ
+ *   （gregs、REG_RIP 等）を <sys/ucontext.h> から公開するために必要。
  */
 #if (defined(__APPLE__) && defined(__MACH__))
 #ifndef _XOPEN_SOURCE
@@ -82,19 +83,20 @@
 #include <ucontext.h>
 #include <unistd.h>
 
-/* Number of timer "interrupts" to demonstrate before disarming. */
+/* タイマ「割り込み」を何回デモしてから無効化するか。 */
 #define MAX_INTERRUPTS 5
 
-/* Counter incremented only by the signal handler.  sig_atomic_t guarantees
- * that read/write is atomic with respect to signal interruption. */
+/* シグナルハンドラのみがインクリメントするカウンタ。
+ * sig_atomic_t により、読み書きがシグナル割り込みに対して
+ * アトミックであることが保証される。 */
 static volatile sig_atomic_t interrupt_count = 0;
 
 /*
- * Async-signal-safe helpers for printing without printf().
- * We build messages in stack buffers and write them with write(2).
+ * printf() を使わずに出力する async-signal-safe ヘルパー。
+ * スタックバッファにメッセージを構築し、write(2) で書き込む。
  */
 
-/* Write a NUL-terminated string to stdout using write(2). */
+/* write(2) でヌル終端文字列を標準出力に書き込む。 */
 static void safe_puts(const char* s) {
     size_t len = 0;
     while (s[len] != '\0') {
@@ -107,14 +109,14 @@ static void safe_puts(const char* s) {
 #if (defined(__APPLE__) && defined(__MACH__) &&        \
      (defined(__x86_64__) || defined(__aarch64__))) || \
     (defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__)))
-/* Write a single hex digit. */
+/* 16進数の1桁を書き込む。 */
 static void safe_hexdigit(int n) {
     char c = (char)((n < 10) ? ('0' + n) : ('a' + (n - 10)));
     ssize_t ret = write(STDOUT_FILENO, &c, 1);
     (void)ret;
 }
 
-/* Write a uintptr_t value in hexadecimal with a fixed 0x prefix. */
+/* uintptr_t 値を固定の 0x プレフィックス付き16進数で書き込む。 */
 static void safe_hex(uintptr_t val) {
     safe_puts("0x");
     for (int i = (int)(sizeof(val) * 8 - 4); i >= 0; i -= 4) {
@@ -124,27 +126,27 @@ static void safe_hex(uintptr_t val) {
 #endif
 
 /*
- * The signal handler — our "Interrupt Service Routine".
+ * シグナルハンドラ — 私たちの「割り込みサービスルーチン（ISR）」。
  *
- * The third argument, void *uctx_ptr, is a pointer to ucontext_t.
- * ucontext_t contains the saved register state of the interrupted context,
- * exactly like a hardware trap frame.
+ * 第3引数 void *uctx_ptr は ucontext_t へのポインタ。
+ * ucontext_t には割り込みされたコンテキストの保存レジスタ状態が含まれ、
+ * ハードウェアのトラップフレームと正確に対応する。
  */
 static void sigvtalrm_isr(int sig, siginfo_t* info, void* uctx_ptr) {
     (void)info;
 
-    /* Cast the opaque third argument to the concrete context type. */
+    /* 不透明な第3引数を具体的なコンテキスト型にキャスト */
     ucontext_t* uctx = (ucontext_t*)uctx_ptr;
 
     /*
-     * Platform-specific extraction of the saved registers.
-     * These values are the *interrupted* main-loop state.
+     * プラットフォーム固有の保存レジスタ取り出し。
+     * これらの値は *割り込みされた* メインループの状態。
      */
 #if defined(__APPLE__) && defined(__MACH__) && defined(__x86_64__)
     /*
      * macOS/Darwin x86_64:
-     * uc_mcontext is a pointer (mcontext_t).  Dereference it to reach the
-     * __darwin_mcontext64 structure, then read the x86_64 saved state.
+     * uc_mcontext はポインタ（mcontext_t）。デリファレンスして
+     * __darwin_mcontext64 構造体に到達し、x86_64 保存状態を読み取る。
      */
     uintptr_t pc = 0, sp = 0, fp = 0;
     if (uctx != NULL && uctx->uc_mcontext != NULL) {
@@ -155,8 +157,8 @@ static void sigvtalrm_isr(int sig, siginfo_t* info, void* uctx_ptr) {
 #elif defined(__APPLE__) && defined(__MACH__) && defined(__aarch64__)
     /*
      * macOS/Darwin ARM64 (Apple Silicon):
-     * uc_mcontext is a pointer (mcontext_t).  Dereference it to reach
-     * __darwin_arm_thread_state64, then read pc/sp/fp/lr.
+     * uc_mcontext はポインタ（mcontext_t）。デリファレンスして
+     * __darwin_arm_thread_state64 に到達し、pc/sp/fp/lr を読み取る。
      */
     uintptr_t pc = 0, sp = 0, fp = 0;
     if (uctx != NULL && uctx->uc_mcontext != NULL) {
@@ -167,9 +169,8 @@ static void sigvtalrm_isr(int sig, siginfo_t* info, void* uctx_ptr) {
 #elif defined(__linux__) && defined(__x86_64__)
     /*
      * Linux glibc x86_64:
-     * uc_mcontext is an embedded mcontext_t.  gregs[] holds the general
-     * purpose registers; REG_RIP/REG_RSP/REG_RBP are defined in
-     * sys/ucontext.h.
+     * uc_mcontext は埋め込み mcontext_t。gregs[] に汎用レジスタが入る。
+     * REG_RIP/REG_RSP/REG_RBP は sys/ucontext.h で定義される。
      */
     uintptr_t pc = 0, sp = 0, fp = 0;
     if (uctx != NULL) {
@@ -180,7 +181,8 @@ static void sigvtalrm_isr(int sig, siginfo_t* info, void* uctx_ptr) {
 #elif defined(__linux__) && defined(__aarch64__)
     /*
      * Linux ARM64 (aarch64):
-     * uc_mcontext has pc, sp, regs[29] (frame pointer), regs[30] (link reg).
+     * uc_mcontext は pc、sp、regs[29]（フレームポインタ）、
+     * regs[30]（リンクレジスタ）を持つ。
      */
     uintptr_t pc = 0, sp = 0, fp = 0;
     if (uctx != NULL) {
@@ -189,15 +191,16 @@ static void sigvtalrm_isr(int sig, siginfo_t* info, void* uctx_ptr) {
         fp = (uintptr_t)(uctx->uc_mcontext.regs[29]);
     }
 #else
-    /* Other platforms: ucontext layout varies.  We print a banner
-     * to show the interrupt fired, but cannot decode registers portably. */
+    /* その他のプラットフォーム: ucontext のレイアウトは様々。
+     * 割り込みが発火したことを示すバナーは表示するが、
+     * レジスタは移植可能にデコードできない。 */
     uintptr_t pc = 0, sp = 0, fp = 0;
     (void)uctx;
 #endif
 
     /*
-     * Print the "interrupt" using only write(2).  This is the only safe way
-     * to produce output from a signal handler.
+     * write(2) のみを使って「割り込み」を表示。
+     * シグナルハンドラから出力を生成する唯一の安全な方法。
      */
     safe_puts("\n=== Timer ISR (SIGVTALRM) ===\n");
     safe_puts("Signal number: ");
@@ -236,16 +239,16 @@ static void sigvtalrm_isr(int sig, siginfo_t* info, void* uctx_ptr) {
 
     safe_puts("==============================\n");
 
-    /* The same signal is automatically blocked while this handler runs,
-     * so a simple increment is safe even though sig_atomic_t only promises
-     * atomic single reads/writes, not read-modify-write. */
+    /* このハンドラ実行中は同じシグナルが自動ブロックされるため、
+     * sig_atomic_t は単一の読み書きのみアトミックを保証し、
+     * read-modify-write は保証しないが、単純なインクリメントは安全。 */
     ++interrupt_count;
 }
 
 /*
- * Arm a virtual-time interval timer.
- * ITIMER_VIRTUAL counts only user-mode CPU time consumed by this process.
- * Every 500 ms of CPU time, the kernel generates SIGVTALRM.
+ * 仮想時間インターバルタイマを設定。
+ * ITIMER_VIRTUAL はこのプロセスが消費したユーザモード CPU 時間のみを
+ * カウントする。500ms の CPU 時間ごとにカーネルが SIGVTALRM を生成。
  */
 static int arm_timer(unsigned long usec) {
     struct itimerval it;
@@ -253,7 +256,7 @@ static int arm_timer(unsigned long usec) {
     it.it_value.tv_sec = (time_t)(usec / 1000000UL);
     it.it_value.tv_usec = (suseconds_t)(usec % 1000000UL);
 
-    /* Same interval for periodic firing. */
+    /* 周期的発火のため同じ間隔 */
     it.it_interval = it.it_value;
 
     if (setitimer(ITIMER_VIRTUAL, &it, NULL) == -1) {
@@ -262,7 +265,7 @@ static int arm_timer(unsigned long usec) {
     return 0;
 }
 
-/* Disarm the virtual timer. */
+/* 仮想タイマを無効化 */
 static int disarm_timer(void) {
     struct itimerval it;
     memset(&it, 0, sizeof(it));
@@ -289,8 +292,8 @@ int main(void) {
     fflush(stdout);
 
     /*
-     * Step 1: install the SIGVTALRM handler with SA_SIGINFO.
-     * SA_SIGINFO is required to receive the third argument (ucontext_t*).
+     * ステップ 1: SA_SIGINFO 付きで SIGVTALRM ハンドラをインストール。
+     * SA_SIGINFO は第3引数（ucontext_t*）を受け取るために必要。
      */
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = sigvtalrm_isr;
@@ -306,8 +309,8 @@ int main(void) {
     }
 
     /*
-     * Step 2: arm the virtual timer.
-     * 500,000 microseconds = 500 milliseconds.
+     * ステップ 2: 仮想タイマを設定。
+     * 500,000 マイクロ秒 = 500 ミリ秒。
      */
     if (arm_timer(500000UL) == -1) {
         perror("setitimer");
@@ -318,24 +321,24 @@ int main(void) {
     fflush(stdout);
 
     /*
-     * Step 3: busy CPU loop.
-     * Because ITIMER_VIRTUAL only counts user CPU time, this loop will
-     * accumulate virtual time and trigger SIGVTALRM repeatedly.
-     * The handler runs asynchronously, just like a hardware ISR.
+     * ステップ 3: CPU ビジーループ。
+     * ITIMER_VIRTUAL はユーザ CPU 時間のみをカウントするため、
+     * このループは仮想時間を蓄積し SIGVTALRM を繰り返し発生させる。
+     * ハンドラは非同期に実行され、ちょうどハードウェア ISR のように動作。
      *
-     * We keep main-loop chatter to a minimum so the register dump inside the
-     * handler remains the focal point of the demo.
+     * メインループの出力は最小限に抑え、ハンドラ内のレジスタダンプが
+     * デモの焦点となるようにする。
      */
     sig_atomic_t last_count = 0;
     while (interrupt_count < MAX_INTERRUPTS) {
-        /* A tiny amount of work so the loop does not optimize away. */
+        /* ループが最適化されないようにする微量の処理 */
         volatile unsigned long counter = 0;
         for (unsigned long i = 0; i < 10000000UL; ++i) {
             ++counter;
         }
 
-        /* Print only when the interrupt count changes, so the handler's
-         * PC/SP/FP dump stands out. */
+        /* 割り込みカウントが変化したときだけ表示し、ハンドラの
+         * PC/SP/FP ダンプが目立つようにする */
         if (interrupt_count != last_count) {
             last_count = interrupt_count;
             printf("[main loop] interrupts so far = %d\n",
@@ -345,8 +348,8 @@ int main(void) {
     }
 
     /*
-     * Step 4: disarm the timer and exit.
-     * This is analogous to masking or disabling a hardware interrupt source.
+     * ステップ 4: タイマを無効化して終了。
+     * これはハードウェア割り込み源をマスクまたは無効化することに相当。
      */
     if (disarm_timer() == -1) {
         perror("setitimer disarm");

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Run a command inside an OrbStack Linux machine, from the host repo root.
+# OrbStack Linux マシン内でコマンドを実行する（ホストのリポジトリルートから）。
 #
-# OrbStack mounts the macOS filesystem at the same absolute path inside every
-# machine, so the host repository is edited/built/run in place — no copy.
+# OrbStack は macOS のファイルシステムを全マシン内の同一絶対パスにマウントするため、
+# ホストリポジトリをその場で編集/ビルド/実行できる — コピー不要。
 #
-# Usage: scripts/in-linux.sh <machine> <command...>
-# Example:
+# 使い方: scripts/in-linux.sh <マシン名> <コマンド...>
+# 例:
 #   scripts/in-linux.sh x64-linux-env make
 #   scripts/in-linux.sh arm64-linux-env ./06_realtime
 set -euo pipefail
@@ -18,19 +18,19 @@ fi
 machine="$1"
 shift
 
-# Make sure the machine is up (no-op if already running).
+# マシンが起動していることを確認（既に起動していれば何もしない）。
 orbctl start "$machine" >/dev/null 2>&1 || true
 
-# Resolve the repo root on the host; the same path is used inside the VM.
+# ホスト上のリポジトリルートを解決。同じパスが VM 内でも使われる。
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Run as root inside the VM. OrbStack maps Linux root to the macOS owner of
-# the mounted filesystem, so files written from the VM are owned by the host
-# user — no ownership surprises, and no sudo needed for package installs.
-# The command is subject to remote shell parsing, so keep arguments simple
-# (no embedded quotes/spaces).
+# VM 内で root として実行。OrbStack は Linux root をマウントされたファイル
+# システムの macOS 所有者にマップするため、VM から書き込まれたファイルは
+# ホストユーザが所有する — 所有権の驚きがなく、パッケージインストールに
+# sudo も不要。コマンドはリモートシェルのパースを受けるため、引数は
+# シンプルに保つこと（引用符/スペースを埋め込まない）。
 
-# Pass through selected host env vars (currently V for verbose test output).
+# 選択したホスト環境変数を渡す（現在は V: 詳細テスト出力用）。
 prefix=""
 [ -n "${V:-}" ] && prefix="export V=1; "
 

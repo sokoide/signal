@@ -1,3 +1,12 @@
+=== 概念: シグナルとは何か ===
+シグナル = OS がプロセスに送る非同期通知
+HW 割り込み: CPU に通知、ISR を実行
+シグナル:    プロセスに通知、ハンドラを実行
+
+=== 注意: ハンドラ内では printf を使ってはいけない ===
+printf はバッファを持つため async-signal-safe でない
+代わりに write() を使用（safe_write_str/int ヘルパー）
+
 PID: <PID>
 Trying to catch SIGKILL (this must fail)...
   -> signal(SIGKILL) failed as expected: Invalid argument

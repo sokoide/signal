@@ -117,8 +117,8 @@ flowchart LR
 | **ハンドラ**         | ISR（Interrupt Service Routine）      | シグナルハンドラ関数                                               | 割り込まれたコンテキストとは別に実行       |
 | **コンテキスト保存** | CPU が自動で SS:RSP/RFLAGS/CS:RIP を push | カーネルが割り込まれた瞬間のCPUコンテキストをシグナルフレームに保存。`ucontext_t` はそれを反映する | シグナルフレームに保存される               |
 | **復帰命令**         | `iret`（x86）/ `eret`（ARM）          | `sigreturn(2)`（カーネルが自動呼出）                               | 保存したコンテキストを復元して再開         |
-| **割り込み禁止**     | `cli` 命令（Clear Interrupt Flag）    | `sigprocmask(SIG_BLOCK, ...)`                                      | プロセス（スレッド）単位のマスク。CPU 全体の割り込みは止めない |
-| **割り込み許可**     | `sti` 命令（Set Interrupt Flag）      | `sigprocmask(SIG_UNBLOCK, ...)`                                    | プロセス（スレッド）単位のマスク           |
+| **割り込み禁止**     | `cli` 命令（Clear Interrupt Flag）    | `sigprocmask(SIG_BLOCK, ...)`                                      | ⚠️ **影響範囲が根本的に異なる**: `cli` は CPU 全体の物理割り込みを禁止し OS のスケジューラも止める。`sigprocmask` は自プロセス宛てシグナルの配送をブロックするだけで、**OS のタイマ割り込み・コンテキストスイッチ・他プロセスには一切影響しない** |
+| **割り込み許可**     | `sti` 命令（Set Interrupt Flag）      | `sigprocmask(SIG_UNBLOCK, ...)`                                    | 同上。ブロック解除で保留シグナルが配送されるだけ。OS の動作は変わらない |
 | **割り込み優先度**   | IRQ 優先度 (PIC/APIC)                 | 標準は優先度なし、RTシグナル間のみ FIFO                            | シグナル到着順は保証されない               |
 | **割り込みネスト**   | 可能（higher-priority IRQ が lower に割り込む） | デフォルトで同一シグナルはブロック（`SA_NODEFER` で変更可）      | ハンドラ実行中は同シグナルが自動マスク     |
 | **NMI**              | Non-Maskable Interrupt（`cli` でも止まらないハードウェア機構） | `SIGKILL` / `SIGSTOP`（キャッチ不可、ブロック不可）          | ⚠️ **実装は全く異なる**。NMI は HW 機構であり、SIGKILL/SIGSTOP は単にプロセスが拒否できない OS 信号。『絶対に止められない』という点だけで学習上対応づけている |

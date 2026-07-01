@@ -1,33 +1,29 @@
 /*
- * 04_timer.c — Introduction to POSIX timer signals
+ * 04_timer.c — POSIX タイマシグナルの入門
  *
- * This program demonstrates the two POSIX timer APIs and the signals they
- * generate by running them side by side.
+ * このプログラムは2つの POSIX タイマ API と、それらが生成するシグナルを
+ * 並行して動かしながら実演する。
  *
- * 1. alarm(2): the simplest "one-shot, second-resolution" timer.
- *    It sends SIGALRM to the calling process after the specified number of
- *    seconds.
+ * 1. alarm(2): 最もシンプルな「単発・秒単位」タイマ。
+ *    指定された秒数後に SIGALRM を呼び出し元プロセスに送る。
  *
- * 2. setitimer(2): a repeating timer with microsecond resolution.
- *    There are three measurement domains, each producing a different signal.
- *    Note: setitimer() is marked obsolescent in POSIX.1-2008.  New code
- *    should consider timer_create() / timer_settime() instead.
+ * 2. setitimer(2): マイクロ秒精度の反復タイマ。
+ *    3つの計測ドメインがあり、それぞれ異なるシグナルを生成する。
+ *    注: setitimer() は POSIX.1-2008 で obsolescent（廃止予定）。
+ *    新規コードでは timer_create() / timer_settime() を検討すべき。
  *
- *    | which            | signal      | measures                                 |
- *    |------------------|-------------|------------------------------------------|
- *    | ITIMER_REAL      | SIGALRM     | wall-clock time                          |
- *    | ITIMER_VIRTUAL   | SIGVTALRM   | user-mode CPU time only                  |
- *    | ITIMER_PROF      | SIGPROF     | user CPU time + kernel CPU time          |
+ *    | which            | signal      | 計測対象                              |
+ *    |------------------|-------------|---------------------------------------|
+ *    | ITIMER_REAL      | SIGALRM     | 実時間（wall-clock time）             |
+ *    | ITIMER_VIRTUAL   | SIGVTALRM   | ユーザモード CPU 時間のみ             |
+ *    | ITIMER_PROF      | SIGPROF     | ユーザ CPU 時間 + カーネル CPU 時間   |
  *
- * Key points:
- *   - ITIMER_REAL keeps ticking while the process is in sleep() because it
- *     measures wall-clock time.
- *   - ITIMER_VIRTUAL does not advance during sleep() because no CPU time is
- *     being consumed.
- *   - This lets you feel the difference between an OS "timer interrupt" and
- *     "CPU time".
+ * 重要なポイント:
+ *   - ITIMER_REAL は sleep() 中も刻み続ける（実時間を計測するため）。
+ *   - ITIMER_VIRTUAL は sleep() 中に進まない（CPU 時間を消費しないため）。
+ *   - これにより OS の「タイマ割り込み」と「CPU 時間」の違いを実感できる。
  *
- * Build:
+ * ビルド:
  *   cc -std=c11 -Wall -Wextra -O2 -g 04_timer.c -o 04_timer
  */
 
@@ -39,30 +35,33 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+/* 2つの timeval 間の経過マイクロ秒を計算するマクロ */
+#define ELAPSED_US(start, now) \
+    (((now).tv_sec - (start).tv_sec) * 1000000L + ((now).tv_usec - (start).tv_usec))
+
 /*
- * Variables that can be safely shared between a signal handler and normal
- * execution.
+ * シグナルハンドラと通常の実行の間で安全に共有できる変数。
  *
- * volatile: prevents the compiler from optimizing away reloads, so changes
- *           made by the handler are always visible.
- * sig_atomic_t: reads and writes of this type are indivisible and will not
- *               be torn by signal interruption.
+ * volatile: コンパイラがリロードを最適化で除去するのを防ぐ。
+ *           ハンドラによる変更が常に可視になる。
+ * sig_atomic_t: この型の読み書きは不可分であり、シグナル割り込みに
+ *               よって破損しない。
  */
 static volatile sig_atomic_t g_virtual_count = 0;
 static volatile sig_atomic_t g_real_count = 0;
 
 /*
- * SIGVTALRM handler.
- * Fires only while the process is consuming CPU time in user mode.
+ * SIGVTALRM ハンドラ。
+ * プロセスがユーザモードで CPU 時間を消費している間のみ発火する。
  */
 static void virtual_handler(int sig) {
-    (void)sig; /* silence unused-parameter warning */
+    (void)sig; /* 未使用パラメータ警告を抑制 */
     g_virtual_count++;
 }
 
 /*
- * SIGALRM handler.
- * Called when the ITIMER_REAL (wall-clock) timer fires.
+ * SIGALRM ハンドラ。
+ * ITIMER_REAL（実時間）タイマが発火したときに呼ばれる。
  */
 static void real_handler(int sig) {
     (void)sig;
@@ -70,41 +69,41 @@ static void real_handler(int sig) {
 }
 
 /*
- * Handler for alarm().
- * alarm() is used with printf avoided; we emit the message with the
- * async-signal-safe write() instead.
+ * alarm() 用のハンドラ。
+ * printf を避け、async-signal-safe な write() でメッセージを出力する。
  */
 static void alarm_handler(int sig) {
     (void)sig;
     const char msg[] = "[alarm] SIGALRM fired (one-shot)\n";
-    /* write(2) is async-signal-safe */
+    /* write(2) は async-signal-safe */
     ssize_t ret = write(STDOUT_FILENO, msg, sizeof(msg) - 1);
     (void)ret;
 }
 
 /*
- * A busy loop that consumes CPU.
- * sleep() does not consume CPU, so the VIRTUAL timer will not advance while
- * sleeping.  Here we deliberately occupy the CPU for roughly one second.
+ * CPU を消費するビジーループ。
+ *
+ * ITIMER_VIRTUAL はユーザモード CPU 時間を計測する。
+ * sleep() は CPU を消費しないため、VIRTUAL タイマは sleep 中に進まない。
+ * このループは約1秒間 CPU を占有し、VIRTUAL タイマがプロセスが
+ * 能動的に CPU サイクルを消費している間のみ発火することを示す。
  */
 static void busy_loop_for_one_second(void) {
     struct timeval start, now;
-    /* gettimeofday() is used for brevity.  For new code, prefer
-     * clock_gettime(CLOCK_MONOTONIC, ...) because it is not affected by
-     * system clock adjustments. */
+    /* 簡潔さのため gettimeofday() を使用。新規コードでは
+     * clock_gettime(CLOCK_MONOTONIC, ...) が推奨される。
+     * システムクロック調整の影響を受けないため。 */
     gettimeofday(&start, NULL);
 
-    /* `spinner` is a dummy variable that prevents the loop body from being
-     * optimized away.  It is not part of the exit condition. */
+    /* `spinner` はループ本体が最適化で除去されるのを防ぐダミー変数。
+     * ループの終了条件には関与しない。 */
     volatile unsigned long spinner = 0;
     do {
         for (int i = 0; i < 1000000; i++) {
             spinner++;
         }
         gettimeofday(&now, NULL);
-    } while ((now.tv_sec - start.tv_sec) * 1000000L +
-                 (now.tv_usec - start.tv_usec) <
-             1000000L);
+    } while (ELAPSED_US(start, now) < 1000000L);
 }
 
 int main(void) {
@@ -112,15 +111,15 @@ int main(void) {
 
     /*
      * ============================================================
-     * Part 1: alarm(2) — one-shot, second-resolution timer
+     * パート1: alarm(2) — 単発・秒単位のタイマ
      * ============================================================
      *
-     * alarm(seconds) schedules SIGALRM once after `seconds` seconds.
-     * It has only second resolution and is one-shot.  Calling alarm()
-     * again cancels any previous alarm().
+     * alarm(seconds) は `seconds` 秒後に SIGALRM を1回だけスケジュールする。
+     * 秒単位の精度で、単発のみ。alarm() を再度呼ぶと前回の alarm() は
+     * キャンセルされる。
      */
     printf("=== alarm(2) demo ===\n");
-    fflush(stdout); /* stabilize ordering with write() in the handler */
+    fflush(stdout); /* ハンドラ内の write() との出力順序を安定化 */
 
     sa.sa_handler = alarm_handler;
     sigemptyset(&sa.sa_mask);
@@ -130,39 +129,40 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
 
-    /* Schedule SIGALRM in one second. */
+    /* 1秒後に SIGALRM をスケジュール */
     alarm(1);
 
     /*
-     * pause() sleeps until a signal is delivered.
-     * When SIGALRM arrives, pause() returns -1.
+     * pause() はシグナルが配送されるまでスリープする。
+     * SIGALRM が到着すると、pause() は -1 を返す。
      *
-     * In this simple "alarm then pause" sequence there is no race, but in
-     * general "check condition then wait" code can miss a signal that
-     * arrives between the check and the wait (the classical race).  For
-     * production code, use sigsuspend(2) to change the signal mask and wait
-     * atomically (see the README "Advanced Topics" section).
+     * このシンプルな「alarm してから pause」のシーケンスには
+     * 競合状態はない。しかし一般的な「条件を確認してから待機」
+     * のコードでは、確認と待機の間にシグナルが到着して見逃す
+     * 可能性がある（古典的な競合）。本番コードでは sigsuspend(2) を
+     * 使い、シグナルマスクの変更と待機を不可分に行うこと。
+     * （詳細は README「発展トピック」参照）
      */
     pause();
 
     /*
-     * alarm(0) cancels any pending alarm.
-     * This is good cleanup hygiene.
+     * alarm(0) は保留中のアラームをキャンセルする。
+     * よい後片付けの習慣。
      */
     alarm(0);
 
     /*
      * ============================================================
-     * Part 2: setitimer(2) — high-resolution repeating timer
+     * パート2: setitimer(2) — 高精度反復タイマ
      * ============================================================
      *
-     * struct itimerval contains two struct timevals:
-     *   it_value    : time until the first expiration (initial value)
-     *   it_interval : interval between subsequent expirations (0 = one-shot)
+     * struct itimerval は2つの struct timeval を含む:
+     *   it_value    : 最初の期限までの時間（初期値）
+     *   it_interval : 以降の期限の間隔（0 = 単発）
      */
     printf("\n=== setitimer(2) demo ===\n");
 
-    /* Register the SIGVTALRM handler with sigaction. */
+    /* SIGVTALRM ハンドラを sigaction で登録 */
     sa.sa_handler = virtual_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
@@ -171,7 +171,7 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
 
-    /* Register the SIGALRM handler with sigaction (for ITIMER_REAL). */
+    /* SIGALRM ハンドラを sigaction で登録（ITIMER_REAL 用） */
     sa.sa_handler = real_handler;
     if (sigaction(SIGALRM, &sa, NULL) == -1) {
         perror("sigaction(SIGALRM)");
@@ -179,10 +179,10 @@ int main(void) {
     }
 
     /*
-     * (A) Measure CPU time with ITIMER_VIRTUAL
+     * (A) ITIMER_VIRTUAL で CPU 時間を計測
      *
-     * Fire SIGVTALRM every 10 ms.  The handler increments g_virtual_count,
-     * and we display the total after the busy loop.
+     * 10ms ごとに SIGVTALRM を発火。ハンドラが g_virtual_count を
+     * インクリメントする。ビジーループ終了後に合計を表示する。
      */
     struct itimerval virtual_timer;
     virtual_timer.it_value.tv_sec = 0;
@@ -199,8 +199,8 @@ int main(void) {
     busy_loop_for_one_second();
 
     /*
-     * To stop a timer, pass an itimerval with both members set to 0.
-     * Otherwise signals would keep arriving during later work.
+     * タイマを停止するには、両方のメンバを0に設定した itimerval を渡す。
+     * そうしないと、後続の処理中もシグナルが届き続ける。
      */
     virtual_timer.it_value.tv_sec = 0;
     virtual_timer.it_value.tv_usec = 0;
@@ -214,12 +214,11 @@ int main(void) {
            (int)g_virtual_count);
 
     /*
-     * (B) Demonstrate the difference between ITIMER_REAL and ITIMER_VIRTUAL
-     *     using sleep().
+     * (B) sleep() を使った ITIMER_REAL と ITIMER_VIRTUAL の違いの実演
      *
-     * Point: sleep(1) suspends the process, so it consumes no CPU time.
-     * Therefore ITIMER_VIRTUAL will not fire during sleep, but ITIMER_REAL
-     * (wall-clock time) keeps firing regardless.
+     * ポイント: sleep(1) はプロセスを一時停止するため、CPU 時間を消費しない。
+     * したがって ITIMER_VIRTUAL は sleep 中に発火しないが、
+     * ITIMER_REAL（実時間）は関係なく発火し続ける。
      */
     printf(
         "\n--- ITIMER_REAL fires during sleep, ITIMER_VIRTUAL does not ---\n");
@@ -227,7 +226,7 @@ int main(void) {
     g_real_count = 0;
     g_virtual_count = 0;
 
-    /* Set the REAL timer to 100 ms intervals. */
+    /* REAL タイマを 100ms 間隔に設定 */
     struct itimerval real_timer;
     real_timer.it_value.tv_sec = 0;
     real_timer.it_value.tv_usec = 100000; /* 100ms */
@@ -237,7 +236,7 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
 
-    /* Set the VIRTUAL timer to 100 ms intervals as well. */
+    /* VIRTUAL タイマも 100ms 間隔に設定 */
     struct itimerval virtual_timer2;
     virtual_timer2.it_value.tv_sec = 0;
     virtual_timer2.it_value.tv_usec = 100000; /* 100ms */
@@ -251,7 +250,7 @@ int main(void) {
     sleep(1);
     printf("sleep(1) ended.\n");
 
-    /* Stop both timers. */
+    /* 両方のタイマを停止 */
     struct itimerval stop;
     stop.it_value.tv_sec = 0;
     stop.it_value.tv_usec = 0;
@@ -271,10 +270,11 @@ int main(void) {
         (int)g_real_count, (int)g_virtual_count);
 
     /*
-     * (C) Note: ITIMER_PROF fires based on "user CPU time + kernel CPU time"
-     *     and generates SIGPROF.  It is commonly used by profilers.
-     *     We omit it here to keep the example concise, but you can use it by
-     *     passing ITIMER_PROF to setitimer() exactly as above.
+     * (C) 注: ITIMER_PROF は「ユーザ CPU 時間 + カーネル CPU 時間」
+     *     に基づいて発火し、SIGPROF を生成する。プロファイラで
+     *     一般的に使用される。ここでは例を簡潔にするため省略するが、
+     *     上記とまったく同様に ITIMER_PROF を setitimer() に渡せば
+     *     使用できる。
      */
 
     printf("\nDone.\n");

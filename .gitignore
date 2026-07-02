@@ -17,6 +17,7 @@
 /08_hw_interrupt
 /09_fork_exec
 /10_signal_safety
+/91_printf_deadlock
 
 # macOS debug bundles
 *.dSYM/

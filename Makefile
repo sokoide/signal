@@ -30,12 +30,19 @@ BINS := 01_signal_basics \
         07_selfpipe \
         08_hw_interrupt \
         09_fork_exec \
-        10_signal_safety
+        10_signal_safety \
+        91_printf_deadlock
 
 all: $(BINS)
 
 %: $(EXAMPLES_DIR)/%.c
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
+
+# 91_printf_deadlock uses pthreads. macOS and glibc >= 2.34 ship pthread in
+# libc, so -lpthread is unnecessary (and harmless) there; older glibc needs it.
+# Built by `make` / `make 91_printf_deadlock`, but NOT by `make run` (it hangs).
+91_printf_deadlock: $(EXAMPLES_DIR)/91_printf_deadlock.c
+	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS) -lpthread
 
 run: $(BINS)
 	@echo "=== Running 01_signal_basics ==="
@@ -69,6 +76,9 @@ run: $(BINS)
 	@echo ""
 	@echo "Note: 07_selfpipe is interactive (select() event loop)."
 	@echo "      Run it manually:  make run-interactive   or   ./07_selfpipe"
+	@echo "Note: 91_printf_deadlock intentionally DEADLOCKS (hangs forever)."
+	@echo "      It is built by 'make' but NOT run by 'make run'."
+	@echo "      Run it manually with a timeout:  timeout 5 ./91_printf_deadlock"
 
 # Interactive samples that block waiting for terminal input or external
 # signals.  They cannot be auto-run by `make run`; launch them manually and

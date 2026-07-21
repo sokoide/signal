@@ -35,6 +35,9 @@
 /*
  * SIGINT ハンドラがインクリメントするカウンタ。
  * 通常コードと非同期ハンドラで共有されるため、volatile sig_atomic_t。
+ * 同じ SIGINT はハンドラ実行中に自動ブロックされるため、この例では
+ * ++ の read-modify-write が同種ハンドラと競合しない（型自体が ++ 全体の
+ * 原子性を保証するわけではない）。
  */
 static volatile sig_atomic_t sigint_count = 0;
 

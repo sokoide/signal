@@ -129,8 +129,10 @@ int main(void) {
     }
     fflush(stdout);
 
-    /* raise() は指定されたシグナルを呼び出し元スレッド/プロセスに送る。
-     * kill(getpid(), SIGINT) と完全に等価。 */
+    /* raise() は指定されたシグナルを呼び出し元スレッドへ送る。
+     * kill(getpid(), SIGINT) はプロセス宛てであり、マルチスレッドでは
+     * 配送先スレッドの選択規則が異なる。単一スレッドのこの例では
+     * 結果が同じに見えるが、API の意味は同一ではない。 */
     printf("Raising SIGINT to ourselves...\n");
     fflush(stdout);
     raise(SIGINT);

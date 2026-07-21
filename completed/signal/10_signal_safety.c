@@ -55,9 +55,10 @@ static void safe_write(const char* msg) {
         ++len;
     }
     /*
-     * write() は中断される可能性がある。本番コードではメッセージ全体が
-     * 書き込まれるまでループすべき。このデモではメッセージが短いため
-     * 1回の write で十分。
+     * write() は partial write や EINTR を返し得る。このデモでは戻り値を
+     * 記録せず、短い通知を best-effort で1回だけ送る。完全性が必要な
+     * 通常コードでは戻り値を検査して再試行すること（ハンドラ内での
+     * 無限再試行は避ける）。
      */
     ssize_t ret = write(STDERR_FILENO, msg, len);
     (void)ret;

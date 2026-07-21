@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # OrbStack Linux マシン *内部* で実行される。
 # 全サンプルをビルドし、各サンプルを実行し（サンプルごとに個別処理）、
-# 出力を正規化して tests/<out|expected>/<arch>/NN.txt に書き込む。
+# 出力を正規化して completed/tests/<out|expected>/<arch>/NN.txt に書き込む。
 #
 # 使い方（scripts/in-linux.sh <マシン名> 経由で呼び出し）:
-#   scripts/check-linux.sh check      # tests/out/<arch>/ に書き込み
-#   scripts/check-linux.sh generate   # tests/expected/<arch>/ に書き込み
+#   scripts/check-linux.sh check      # completed/tests/out/<arch>/ に書き込み
+#   scripts/check-linux.sh generate   # completed/tests/expected/<arch>/ に書き込み
 set -uo pipefail
 
 mode="${1:-check}"
@@ -13,8 +13,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 arch="$(uname -m)"            # aarch64 | x86_64
 case "$mode" in
-    generate) dest="tests/expected/$arch" ;;
-    *)        dest="tests/out/$arch" ;;
+    generate) dest="completed/tests/expected/$arch" ;;
+    *)        dest="completed/tests/out/$arch" ;;
 esac
 mkdir -p "$dest"
 

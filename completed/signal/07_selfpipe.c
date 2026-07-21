@@ -40,7 +40,7 @@
  * Self-pipe trick は完全に POSIX 準拠で、macOS、*BSD などでも動作する。
  *
  * ビルド:
- *   cc -std=c11 -Wall -Wextra -O2 -g examples/07_selfpipe.c -o 07_selfpipe
+ *   cc -std=c11 -Wall -Wextra -O2 -g completed/signal/07_selfpipe.c -o 07_selfpipe
  *
  * 実行:
  *   ./07_selfpipe

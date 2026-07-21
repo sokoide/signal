@@ -81,7 +81,7 @@ x86_64:  size 8192  bytes      # glibc SIGSTKSZ on x86-64
 
 ## 期待出力
 
-`tests/expected/<arch>/NN.txt` にコミット済み（サンプルごとに1ファイル）、
+`completed/tests/expected/<arch>/NN.txt` にコミット済み（サンプルごとに1ファイル）、
 **正規化済み**（`scripts/normalize.sed` 参照）:
 
 - PID / UID → `<PID>` / `<UID>`
@@ -93,7 +93,7 @@ x86_64:  size 8192  bytes      # glibc SIGSTKSZ on x86-64
 意図的に出力が変わる場合（コードやメッセージの編集）:
 
 ```sh
-make expected         # tests/expected/{aarch64,x86_64}/*.txt を書き換える
+make expected         # completed/tests/expected/{aarch64,x86_64}/*.txt を書き換える
 # git diff を確認し、コミット
 ```
 

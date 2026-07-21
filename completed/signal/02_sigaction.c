@@ -47,7 +47,8 @@
  * 有用な siginfo_t メンバ:
  *   si_pid   - 送信プロセスの PID（kill/raise で有効）
  *   si_uid   - 送信プロセスの実 UID
- *   si_code  - 理由コード、例: SI_USER（kill/raise の場合）
+ *   si_code  - 理由コード（kill() は通常 SI_USER、raise() は
+ *               実装上 SI_TKILL など、送信 API に応じて異なる）
  *   si_addr  - SIGSEGV、SIGBUS、SIGILL、SIGFPE のフォールトアドレス
  */
 static void info_handler(int sig, siginfo_t* info, void* ucontext) {
@@ -177,8 +178,8 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
-    /* 同一プロセスからの raise() は si_code == SI_USER、
-     * si_pid == getpid()、si_uid == getuid() を生成する。 */
+    /* raise() でも si_pid == getpid()、si_uid == getuid() は得られるが、
+     * si_code は kill() と同じ SI_USER になるとは限らない。 */
     raise(SIGUSR1);
 
     /* ================================================================

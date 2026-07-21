@@ -22,7 +22,8 @@
  * 割り込みされたユーザコードの完全な保存 CPU コンテキスト。
  * プログラムカウンタ（PC）、スタックポインタ（SP）、フレームポインタ（FP）を
  * 表示することで、カーネルが本当にメインプログラムの実行を途中で
- * 凍結したことを示す。
+ * 凍結した際の保存状態を観測する。タイマ発火のタイミングは非決定的
+ * なので、複数回の PC 値が必ず異なることまでは保証しない。
  *
  * なぜハンドラ内で write() だけを使うか？
  * --------------------------------
@@ -39,7 +40,7 @@
  * 代替メカニズムを検討すべき。ここでは保存 CPU コンテキストを可視化する
  * 最も直接的な方法として ucontext_t を使用する。
  *
- * ビルド: cc -std=c11 -Wall -Wextra -O2 -g examples/08_hw_interrupt.c -o
+ * ビルド: cc -std=c11 -Wall -Wextra -O2 -g completed/signal/08_hw_interrupt.c -o
  * 08_hw_interrupt
  * 実行:  ./08_hw_interrupt
  *
@@ -239,9 +240,10 @@ static void sigvtalrm_isr(int sig, siginfo_t* info, void* uctx_ptr) {
 
     safe_puts("==============================\n");
 
-    /* このハンドラ実行中は同じシグナルが自動ブロックされるため、
-     * sig_atomic_t は単一の読み書きのみアトミックを保証し、
-     * read-modify-write は保証しないが、単純なインクリメントは安全。 */
+    /* このハンドラ実行中は同じ SIGVTALRM が自動ブロックされるため、
+     * この単一ハンドラだけが更新するカウンタでは ++ が他の同種ハンドラ
+     * と競合しない。sig_atomic_t 自体が read-modify-write 全体の原子性を
+     * 保証するわけではない点に注意（SA_NODEFER や複数スレッドでは不十分）。 */
     ++interrupt_count;
 }
 

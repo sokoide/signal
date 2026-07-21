@@ -140,7 +140,10 @@ int main(void) {
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = sigint_handler;
     sigemptyset(&sa.sa_mask);
-    sigaction(SIGINT, &sa, NULL);
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        perror("sigaction(SIGINT)");
+        return 1;
+    }
 
     /*
      * main スレッドで SIGINT をブロックする。これにより SIGINT は
@@ -151,10 +154,18 @@ int main(void) {
     sigset_t block_set;
     sigemptyset(&block_set);
     sigaddset(&block_set, SIGINT);
-    pthread_sigmask(SIG_BLOCK, &block_set, NULL);
+    int err = pthread_sigmask(SIG_BLOCK, &block_set, NULL);
+    if (err != 0) {
+        fprintf(stderr, "pthread_sigmask: %s\n", strerror(err));
+        return 1;
+    }
 
     pthread_t t;
-    pthread_create(&t, NULL, signal_thread, NULL);
+    err = pthread_create(&t, NULL, signal_thread, NULL);
+    if (err != 0) {
+        fprintf(stderr, "pthread_create: %s\n", strerror(err));
+        return 1;
+    }
 
     printf("=== 91_printf_deadlock ===\n");
     printf("main と handler が互いのロックを待ち合う循環デッドロックで\n");
@@ -187,7 +198,10 @@ int main(void) {
      * そこで走った handler が g_lock(B) を取得してから printf を呼ぶ。
      * handler は printf で stdout ロック(A) を待ってブロックする。
      */
-    kill(getpid(), SIGINT);
+    if (kill(getpid(), SIGINT) == -1) {
+        perror("kill(SIGINT)");
+        return 1;
+    }
     /* handler が確実に B を取得してから main が B 待ちに入るよう、少し待つ */
     sleep_ms(50);
 

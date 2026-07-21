@@ -44,8 +44,9 @@
  *
  * volatile: コンパイラがリロードを最適化で除去するのを防ぐ。
  *           ハンドラによる変更が常に可視になる。
- * sig_atomic_t: この型の読み書きは不可分であり、シグナル割り込みに
- *               よって破損しない。
+ * sig_atomic_t: 単一の読み書きがシグナル割り込みに対して不可分。
+ *               ++ のような read-modify-write 全体は保証しないが、
+ *               この例では同じシグナルがハンドラ中に自動ブロックされる。
  */
 static volatile sig_atomic_t g_virtual_count = 0;
 static volatile sig_atomic_t g_real_count = 0;

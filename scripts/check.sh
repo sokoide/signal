@@ -4,8 +4,8 @@
 # （チェックモードでは）コミット済み期待出力と diff する。
 #
 # 使い方:
-#   scripts/check.sh           # テスト実行、tests/expected/ と diff
-#   scripts/check.sh generate  # tests/expected/ を再生成（確認後にコミット）
+#   scripts/check.sh           # テスト実行、completed/tests/expected/ と diff
+#   scripts/check.sh generate  # completed/tests/expected/ を再生成（確認後にコミット）
 set -uo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -23,16 +23,16 @@ for m in "${machines[@]}"; do
 done
 
 if [ "$mode" = "generate" ]; then
-    echo "Expected outputs regenerated under tests/expected/{aarch64,x86_64}/"
+    echo "Expected outputs regenerated under completed/tests/expected/{aarch64,x86_64}/"
     exit "$rc"
 fi
 
 # 生成された各出力をコミット済み期待ファイルと比較。
 for arch in aarch64 x86_64; do
-    for exp in tests/expected/$arch/*.txt; do
+    for exp in completed/tests/expected/$arch/*.txt; do
         [ -e "$exp" ] || continue
         n="$(basename "$exp")"
-        got="tests/out/$arch/$n"
+        got="completed/tests/out/$arch/$n"
         if [ ! -e "$got" ]; then
             echo "MISSING output: $arch/$n" >&2
             rc=1

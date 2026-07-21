@@ -15,7 +15,10 @@
 
 #include <unistd.h>
 
-/* ヌル終端文字列を標準出力に書き込む。 */
+/* ヌル終端文字列を標準出力へ best-effort で書き込む。
+ * write() 1回だけなので、短い通知でも partial write や EINTR により
+ * 全文が出ない可能性がある。完全な出力が必要な用途では戻り値を検査し、
+ * 通常コード側で再試行すること（ハンドラ内の無限再試行は避ける）。 */
 static inline void safe_write_str(const char* s) {
     size_t n = 0;
 
@@ -27,7 +30,7 @@ static inline void safe_write_str(const char* s) {
     (void)ret;
 }
 
-/* signed long long 整数を10進数で標準出力に書き込む。 */
+/* signed long long 整数を10進数で標準出力へ best-effort で書き込む。 */
 static inline void safe_write_int(long long v) {
     char buf[32];
     int i = (int)sizeof(buf) - 1;
@@ -62,7 +65,7 @@ static inline void safe_write_int(long long v) {
     (void)ret;
 }
 
-/* unsigned long long 整数を16進数（小文字）で標準出力に書き込む。 */
+/* unsigned long long 整数を16進数（小文字）で標準出力へ best-effort で書き込む。 */
 static inline void safe_write_hex(unsigned long long v) {
     const char hex[] = "0123456789abcdef";
     char buf[24];

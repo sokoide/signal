@@ -19,7 +19,7 @@ else
 	LDFLAGS ?=
 endif
 
-EXAMPLES_DIR := examples
+COMPLETED_DIR := completed/signal
 
 BINS := 01_signal_basics \
         02_sigaction \
@@ -33,15 +33,19 @@ BINS := 01_signal_basics \
         10_signal_safety \
         91_printf_deadlock
 
-all: $(BINS)
+all: completed
 
-%: $(EXAMPLES_DIR)/%.c
+completed: $(BINS)
+
+run-completed: run
+
+%: $(COMPLETED_DIR)/%.c
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
 # 91_printf_deadlock uses pthreads. macOS and glibc >= 2.34 ship pthread in
 # libc, so -lpthread is unnecessary (and harmless) there; older glibc needs it.
 # Built by `make` / `make 91_printf_deadlock`, but NOT by `make run` (it hangs).
-91_printf_deadlock: $(EXAMPLES_DIR)/91_printf_deadlock.c
+91_printf_deadlock: $(COMPLETED_DIR)/91_printf_deadlock.c
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS) -lpthread
 
 run: $(BINS)
@@ -92,7 +96,7 @@ run-interactive: 07_selfpipe
 
 # ---------------------------------------------------------------------------
 # Local Linux testing on OrbStack (aarch64 + x86_64).
-# See tests/README.md for the full workflow. macOS stays the human-facing host.
+# See completed/tests/README.md for the full workflow. macOS stays the human-facing host.
 # ---------------------------------------------------------------------------
 LINUX_MACHINES := arm64-linux-env x64-linux-env
 
@@ -118,7 +122,7 @@ linux-setup:
 expected:
 	@scripts/check.sh generate
 
-# Build, run all samples on both machines, and diff against tests/expected/.
+# Build, run all samples on both machines, and diff against completed/tests/expected/.
 # Append V=1 for verbose output (per-sample build/run logs, normalized
 # sample output, and a PASS line per sample):  make check V=1
 check:
@@ -131,6 +135,9 @@ format:
 
 clean:
 	rm -f $(BINS)
+	$(MAKE) clean-tutorial-signal
 	rm -rf *.dSYM
 
-.PHONY: all format clean run run-interactive linux-machines linux-setup expected check
+include tutorial/targets.mk
+
+.PHONY: all completed format clean run run-completed run-interactive linux-machines linux-setup expected check

@@ -72,7 +72,8 @@
  *
  *   cc -std=c11 -Wall -Wextra -O2 -g 91_printf_deadlock.c -o 91_printf_deadlock
  *   # macOS / glibc 2.34+ は -lpthread 不要。古い Linux は末尾に -lpthread。
- *   # Makefile からは `make 91_printf_deadlock` でビルド（make run には含まれない）。
+ *   # Makefile からは `make 91_printf_deadlock` でビルド（make run
+ * には含まれない）。
  *
  *   timeout 5 ./91_printf_deadlock
  */
@@ -113,7 +114,8 @@ static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
  */
 static void sigint_handler(int sig) {
     (void)sig;
-    /* B(g_lock) を取得してから A(stdout) を取りに行く → A は main が保持 → BLOCK */
+    /* B(g_lock) を取得してから A(stdout) を取りに行く → A は main が保持 →
+     * BLOCK */
     pthread_mutex_lock(&g_lock);
     printf("[handler] printf in signal handler -> DEADLOCK\n");
     fflush(stdout);

@@ -18,7 +18,8 @@
  *   - SIG_IGN はシグナルを無視する。SIG_DFL はデフォルト動作に戻す。
  *   - SIGKILL は捕捉・ブロック・無視のいずれもできない。
  *   - シグナルハンドラ内では printf() ではなく write() を使わねばならない理由。
- *   - ハンドラと通常コードで共有するフラグは volatile sig_atomic_t でなければならない。
+ *   - ハンドラと通常コードで共有するフラグは volatile sig_atomic_t
+ * でなければならない。
  *
  * ビルド:
  *   cc -std=c11 -Wall -Wextra -O2 -g -o 01_signal_basics 01_signal_basics.c

@@ -8,13 +8,15 @@
  *
  * ハードウェア割り込みの流れ (x86_64)        POSIX シグナルの流れ
  * ------------------------------             -------------------
- * 1. デバイスが IRQ を発生 (タイマ PIT)      1. kill() / setitimer() がシグナルを生成
+ * 1. デバイスが IRQ を発生 (タイマ PIT)      1. kill() / setitimer()
+ * がシグナルを生成
  * 2. CPU が SS:RSP/RFLAGS/CS:RIP を          2. カーネルが完全なレジスタ状態を
- *    カーネルスタックにプッシュ                  ucontext_t（シグナルフレーム）に保存
- * 3. CPU が IDT[ベクタ] で ISR を検索       3. カーネルが sigaction テーブルを参照
+ *    カーネルスタックにプッシュ ucontext_t（シグナルフレーム）に保存
+ * 3. CPU が IDT[ベクタ] で ISR を検索       3. カーネルが sigaction
+ * テーブルを参照
  * 4. ISR を実行                              4. シグナルハンドラを実行
- * 5. iret でレジスタ復元、メインプログラム   5. sigreturn() で ucontext_t を復元、
- *    再開                                        メインプログラム再開
+ * 5. iret でレジスタ復元、メインプログラム   5. sigreturn() で ucontext_t
+ * を復元、 再開                                        メインプログラム再開
  *
  * このプログラムでは、setitimer(ITIMER_VIRTUAL) による SIGVTALRM が
  * プロセスの「タイマ割り込み」として機能する。ハンドラは第3引数
@@ -40,15 +42,15 @@
  * 代替メカニズムを検討すべき。ここでは保存 CPU コンテキストを可視化する
  * 最も直接的な方法として ucontext_t を使用する。
  *
- * ビルド: cc -std=c11 -Wall -Wextra -O2 -g completed/signal/08_hw_interrupt.c -o
- * 08_hw_interrupt
- * 実行:  ./08_hw_interrupt
+ * ビルド: cc -std=c11 -Wall -Wextra -O2 -g completed/signal/08_hw_interrupt.c
+ * -o 08_hw_interrupt 実行:  ./08_hw_interrupt
  *
  * プラットフォーム備考
  * --------------
  * - Linux glibc x86_64:   uc_mcontext は埋め込み; レジスタは
  * gregs[REG_RIP/RSP/RBP] 経由。
- * - Linux glibc aarch64:  uc_mcontext は埋め込み; レジスタは .pc/.sp/.regs[29] 経由。
+ * - Linux glibc aarch64:  uc_mcontext は埋め込み; レジスタは .pc/.sp/.regs[29]
+ * 経由。
  * - macOS x86_64:         uc_mcontext は POINTER; デリファレンスして
  * __ss.__rip/__rsp/__rbp。
  * - macOS ARM64 (Apple):  uc_mcontext は POINTER; デリファレンスして

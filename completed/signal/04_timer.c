@@ -36,8 +36,9 @@
 #include <unistd.h>
 
 /* 2つの timeval 間の経過マイクロ秒を計算するマクロ */
-#define ELAPSED_US(start, now) \
-    (((now).tv_sec - (start).tv_sec) * 1000000L + ((now).tv_usec - (start).tv_usec))
+#define ELAPSED_US(start, now)                    \
+    (((now).tv_sec - (start).tv_sec) * 1000000L + \
+     ((now).tv_usec - (start).tv_usec))
 
 /*
  * シグナルハンドラと通常の実行の間で安全に共有できる変数。

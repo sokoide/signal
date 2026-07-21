@@ -315,7 +315,8 @@ int main(void) {
     }
 
     if (pid == 0) {
-        /* 子プロセス: SIGSEGV ハンドラをインストールし、NULL をデリファレンス */
+        /* 子プロセス: SIGSEGV ハンドラをインストールし、NULL をデリファレンス
+         */
         memset(&act, 0, sizeof(act));
         sigemptyset(&act.sa_mask);
         act.sa_sigaction = segv_handler;

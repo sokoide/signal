@@ -40,7 +40,8 @@
  * Self-pipe trick は完全に POSIX 準拠で、macOS、*BSD などでも動作する。
  *
  * ビルド:
- *   cc -std=c11 -Wall -Wextra -O2 -g completed/signal/07_selfpipe.c -o 07_selfpipe
+ *   cc -std=c11 -Wall -Wextra -O2 -g completed/signal/07_selfpipe.c -o
+ * 07_selfpipe
  *
  * 実行:
  *   ./07_selfpipe
@@ -234,7 +235,8 @@ int main(void) {
 
         maxfd = selfpipe[0] > STDIN_FILENO ? selfpipe[0] : STDIN_FILENO;
 
-        /* select() は監視対象の FD のいずれかが読み取り可能になるまでブロック */
+        /* select() は監視対象の FD のいずれかが読み取り可能になるまでブロック
+         */
         ret = select(maxfd + 1, &rfds, NULL, NULL, NULL);
         if (ret == -1) {
             /* シグナルが select() がブロックする直前に到着し、カーネルが
@@ -277,7 +279,8 @@ int main(void) {
                     }
                     fflush(stdout);
 
-                    /* このデモでは、どちらのシグナルでもクリーンシャットダウン */
+                    /* このデモでは、どちらのシグナルでもクリーンシャットダウン
+                     */
                     if (sig == SIGINT || sig == SIGTERM) {
                         printf("[event loop] Shutting down cleanly.\n");
                         if (selfpipe_overflow_count > 0) {

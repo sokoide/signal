@@ -11,19 +11,16 @@ TUT_SIG_TESTS := $(addprefix $(TUT_SIG_DIR)/tests/,step01_contract_test step02_c
 	test-tutorial-signal-03 test-tutorial-signal-04 \
 	test-tutorial-signal-05 test-tutorial-signal-06
 
-$(TUT_SIG_DIR)/step01_basics: $(TUT_SIG_DIR)/step01_basics.c
-$(TUT_SIG_DIR)/step02_sigaction: $(TUT_SIG_DIR)/step02_sigaction.c
-$(TUT_SIG_DIR)/step03_mask_pending: $(TUT_SIG_DIR)/step03_mask_pending.c
-$(TUT_SIG_DIR)/step04_sigsuspend: $(TUT_SIG_DIR)/step04_sigsuspend.c
-$(TUT_SIG_DIR)/step05_selfpipe: $(TUT_SIG_DIR)/step05_selfpipe.c
-$(TUT_SIG_DIR)/step06_sigwait: $(TUT_SIG_DIR)/step06_sigwait.c
 $(TUT_SIG_DIR)/step%: $(TUT_SIG_DIR)/step%.c
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
-$(TUT_SIG_DIR)/tests/%_contract_test: $(TUT_SIG_DIR)/tests/%_contract_test.c
+# 契約テストは tests/harness.h を共有する。harness.h を編集した場合は再ビルドされる。
+$(TUT_SIG_DIR)/tests/%_contract_test: $(TUT_SIG_DIR)/tests/%_contract_test.c $(TUT_SIG_DIR)/tests/harness.h
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
 run-tutorial-signal: $(TUT_SIG_BINS)
+	@echo "(未実装の Step は exit 2 で停止するため、実装中は個別に"
+	@echo " make test-tutorial-signal-NN を使う方が実用的です)"
 	@for b in $(TUT_SIG_BINS); do echo "=== $$b ==="; timeout 5 ./$$b || exit $$?; done
 
 test-tutorial-signal-01: $(TUT_SIG_DIR)/step01_basics $(TUT_SIG_DIR)/tests/step01_contract_test

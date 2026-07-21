@@ -2,6 +2,23 @@
 
 Linux と macOS で動かしながら、シグナルの生成・保留・配送・ハンドラ実行を観察する教材です。シグナルは「プロセス（正確にはスレッド）への非同期通知」であり、ハードウェア割り込みとの類似は構造上の比喩として扱います。仕様（POSIX）と実装（Linux/macOS）を混同しないことを重視します。
 
+## 学習の到達目標
+
+完成例（`completed/signal/`）を読み、チュートリアル（`tutorial/signal/`）を解き終えると、次が説明できるようになります。
+
+- シグナルが「生成 → pending → 配送 → 処理 → 復帰」と流れることと、配送時点をプログラムから厳密に指定できないこと
+- `raise()` / `kill()` / `pthread_kill()` の送信先の違いと、標準シグナルが pending 中にマージされること
+- `signal()` ではなく `sigaction()` を使う理由と `SA_SIGINFO` / `SA_RESTART` 等のフラグの効能と限界
+- マスクによるクリティカルセクションと、`sigsuspend` / `pselect` / `sigwaitinfo` による原子的待機
+- async-signal-safe の境界（`write` は安全だが即時完全完了とは限らない。`printf` / `malloc` / mutex は不可）
+- 自己完結しない設計（self-pipe / `signalfd` / 同期受信）でハンドラを薄く保つ理由
+
+## 使い方の全体像
+
+- **完成例を読む**: `make completed && make run-completed` で動きを観察し、ソースを読む。
+- **TODO を埋める**: `tutorial/signal/` の Step 1〜6 を自力で実装し、`make test-tutorial-signal-NN` で確認する。
+- どちらから始めても構いません。動きを見たいなら完成例、手を動かしたいならチュートリアルから。
+
 ## まず 5 分で観察する
 
 ```sh
@@ -71,7 +88,7 @@ sigprocmask(SIG_UNBLOCK, &set, NULL);
 
 ### マスクと待機
 
-マスクはスレッド単位です。単一スレッドでは `sigprocmask`、pthread では `pthread_sigmask` を使います。条件確認と待機を別々に行うと競合するため、実用コードでは `sigsuspend`、`pselect`、`ppoll`、または `sigwaitinfo` で原子的な待機を構成します。
+マスクはスレッド単位です。単一スレッドでは `sigprocmask`、pthread では `pthread_sigmask` を使います。条件確認と待機を別々に行うと競合するため、実用コードでは `sigsuspend`、`pselect`、`ppoll`、または `sigwaitinfo` で原子的な待機を構成します。ハンドラを使わずブロックしたまま取り出す `sigwait`（Linux/macOS 両方で動作）や、Linux 専用の `sigwaitinfo`/`sigtimedwait`（macOS 未サポート）も待機の選択肢です。
 
 ### タイマと代替スタック
 
@@ -85,7 +102,7 @@ sigprocmask(SIG_UNBLOCK, &set, NULL);
 
 ハンドラから呼べる関数は POSIX が定める async-signal-safe 集合に限ります。`printf`、`malloc`、mutex 操作は含まれません。`write` は async-signal-safe ですが、呼び出しが常に即時完了するわけではありません。対象 FD が遅い・満杯ならブロックし、要求より少ないバイト数（partial write）を返すこともあります。ハンドラでは短い固定長通知にとどめ、戻り値を確認できる設計にしてください。
 
-共有フラグには `volatile sig_atomic_t` の単一読み書きを使います。`++` のような read-modify-write の安全性は保証されないため、複数回の到着を数えるなら通常コンテキストでキューや pipe を処理します。
+共有フラグには `volatile sig_atomic_t` の単一読み書きを使います。`++` のような read-modify-write の安全性は一般には保証されません。Step 3 の `deliveries++` は、単一スレッドで同じシグナルがハンドラ実行中に自動ブロックされるという限定条件で、マージ後の配送回数を観察するためだけに使います。標準シグナルはハンドラに届く前にマージされるため、self-pipe は配送後の処理を通常コンテキストへ渡せても、送信ごとの回数・値を復元できません。個別イベントを保持するなら通常の IPC、または対応環境のリアルタイムシグナルを使います。
 
 `91_printf_deadlock` は、main スレッドが stdio ロックを保持したまま、別スレッドのハンドラが `printf` で同じロックを待つ状況を示します。libc のロック再入性は実装差があるため、「単一スレッドなら必ずデッドロックする」と一般化しないでください。
 
@@ -108,6 +125,8 @@ make completed       # 完成例をビルド（make と同じ）
 make run-completed   # 完成例を自動実行（91 は除外）
 make test-tutorial-signal-01  # 演習 Step 1 の契約を確認
 make test-tutorial-signal     # 全 Step 完了後の確認
+make run-tutorial-signal      # 各 Step を実行（未実装の Step は exit 2 で止まるため、
+                              # 実装中は test-tutorial-signal-NN の方が実用的）
 make clean
 make 91_printf_deadlock
 timeout 5 ./91_printf_deadlock  # 意図的に停止する番外編

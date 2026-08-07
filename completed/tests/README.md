@@ -2,8 +2,9 @@
 
 サンプルは **Linux** 上で、**2つのアーキテクチャ**（`aarch64` と `x86_64`）で、
 [OrbStack](https://orbstack.dev) マシンを介して実際に実行することで検証される。
-macOS 単独では `06_realtime` を実行できない（POSIX リアルタイムシグナルは
-Darwin で未サポート）。また両アーキテクチャで実行することで、
+macOS 単独では `06_realtime` のリアルタイムシグナル部分を検証できない
+（Darwin では未サポートのため、プログラムは案内を表示して終了する）。
+また両アーキテクチャで実行することで、
 `08_hw_interrupt` の `ucontext_t` レジスタダンプのような
 アーキテクチャ依存の動作（x86_64 の `RIP/RSP/RBP` と aarch64 の `PC/SP/FP`）を
 検出できる。
@@ -100,8 +101,10 @@ make expected         # completed/tests/expected/{aarch64,x86_64}/*.txt を書�
 ## 便利なエイリアス（対話作業用）
 
 ```sh
-alias orb-arm64='cd /Users/scott/repo/sokoide/signal && orb -m arm64-linux-env'
-alias orb-x64='cd /Users/scott/repo/sokoide/signal && orb -m x64-linux-env'
+# リポジトリルートで設定する
+repo_root="$PWD"
+alias orb-arm64="cd '$repo_root' && orb -m arm64-linux-env"
+alias orb-x64="cd '$repo_root' && orb -m x64-linux-env"
 # SSH アクセス:
 #   ssh arm64-linux-env@orb
 #   ssh x64-linux-env@orb

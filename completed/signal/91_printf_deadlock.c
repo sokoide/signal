@@ -80,6 +80,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <errno.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -102,6 +103,7 @@ static void sleep_ms(long ms) {
  *   → main は g_lock 待ち、handler は stdout ロック待ち、で双方が止まる
  */
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
+static int handler_ready_pipe[2] = {-1, -1};
 
 /*
  * SIGINT 受信スレッド用のハンドラ。
@@ -117,6 +119,11 @@ static void sigint_handler(int sig) {
     /* B(g_lock) を取得してから A(stdout) を取りに行く → A は main が保持 →
      * BLOCK */
     pthread_mutex_lock(&g_lock);
+    {
+        const unsigned char ready = 1;
+        ssize_t ret = write(handler_ready_pipe[1], &ready, sizeof(ready));
+        (void)ret;
+    }
     printf("[handler] printf in signal handler -> DEADLOCK\n");
     fflush(stdout);
     pthread_mutex_unlock(&g_lock);
@@ -162,6 +169,11 @@ int main(void) {
         return 1;
     }
 
+    if (pipe(handler_ready_pipe) == -1) {
+        perror("pipe");
+        return 1;
+    }
+
     pthread_t t;
     err = pthread_create(&t, NULL, signal_thread, NULL);
     if (err != 0) {
@@ -204,8 +216,17 @@ int main(void) {
         perror("kill(SIGINT)");
         return 1;
     }
-    /* handler が確実に B を取得してから main が B 待ちに入るよう、少し待つ */
-    sleep_ms(50);
+    /* handler が B を取得した後に書く1バイトを待つ。時間待ちではなく、
+     * ロック順序そのものを同期条件にする。 */
+    unsigned char ready;
+    ssize_t n;
+    do {
+        n = read(handler_ready_pipe[0], &ready, sizeof(ready));
+    } while (n == -1 && errno == EINTR);
+    if (n != 1) {
+        perror("read(handler_ready_pipe)");
+        return 1;
+    }
 
     /*
      * main は g_lock(B) を取得しようとするが、handler が B を保持したまま

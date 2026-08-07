@@ -18,31 +18,31 @@ $(TUT_SIG_DIR)/step%: $(TUT_SIG_DIR)/step%.c
 $(TUT_SIG_DIR)/tests/%_contract_test: $(TUT_SIG_DIR)/tests/%_contract_test.c $(TUT_SIG_DIR)/tests/harness.h
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS)
 
-run-tutorial-signal: $(TUT_SIG_BINS)
+run-tutorial-signal: check-timeout $(TUT_SIG_BINS)
 	@echo "(未実装の Step は exit 2 で停止するため、実装中は個別に"
 	@echo " make test-tutorial-signal-NN を使う方が実用的です)"
-	@for b in $(TUT_SIG_BINS); do echo "=== $$b ==="; timeout 5 ./$$b || exit $$?; done
+	@for b in $(TUT_SIG_BINS); do echo "=== $$b ==="; "$(TIMEOUT)" 5 ./$$b || exit $$?; done
 
-test-tutorial-signal-01: $(TUT_SIG_DIR)/step01_basics $(TUT_SIG_DIR)/tests/step01_contract_test
-	@timeout 5 ./$(TUT_SIG_DIR)/tests/step01_contract_test
+test-tutorial-signal-01: check-timeout $(TUT_SIG_DIR)/step01_basics $(TUT_SIG_DIR)/tests/step01_contract_test
+	@"$(TIMEOUT)" 5 ./$(TUT_SIG_DIR)/tests/step01_contract_test
 
-test-tutorial-signal-02: $(TUT_SIG_DIR)/step02_sigaction $(TUT_SIG_DIR)/tests/step02_contract_test
-	@timeout 5 ./$(TUT_SIG_DIR)/tests/step02_contract_test
+test-tutorial-signal-02: check-timeout $(TUT_SIG_DIR)/step02_sigaction $(TUT_SIG_DIR)/tests/step02_contract_test
+	@"$(TIMEOUT)" 5 ./$(TUT_SIG_DIR)/tests/step02_contract_test
 
-test-tutorial-signal-03: $(TUT_SIG_DIR)/step03_mask_pending $(TUT_SIG_DIR)/tests/step03_contract_test
-	@timeout 5 ./$(TUT_SIG_DIR)/tests/step03_contract_test
+test-tutorial-signal-03: check-timeout $(TUT_SIG_DIR)/step03_mask_pending $(TUT_SIG_DIR)/tests/step03_contract_test
+	@"$(TIMEOUT)" 5 ./$(TUT_SIG_DIR)/tests/step03_contract_test
 
-test-tutorial-signal-04: $(TUT_SIG_DIR)/step04_sigsuspend $(TUT_SIG_DIR)/tests/step04_contract_test
-	@timeout 5 ./$(TUT_SIG_DIR)/tests/step04_contract_test
+test-tutorial-signal-04: check-timeout $(TUT_SIG_DIR)/step04_sigsuspend $(TUT_SIG_DIR)/tests/step04_contract_test
+	@"$(TIMEOUT)" 5 ./$(TUT_SIG_DIR)/tests/step04_contract_test
 
-test-tutorial-signal-05: $(TUT_SIG_DIR)/step05_selfpipe $(TUT_SIG_DIR)/tests/step05_contract_test
-	@timeout 5 ./$(TUT_SIG_DIR)/tests/step05_contract_test
+test-tutorial-signal-05: check-timeout $(TUT_SIG_DIR)/step05_selfpipe $(TUT_SIG_DIR)/tests/step05_contract_test
+	@"$(TIMEOUT)" 5 ./$(TUT_SIG_DIR)/tests/step05_contract_test
 
-test-tutorial-signal-06: $(TUT_SIG_DIR)/step06_sigwait $(TUT_SIG_DIR)/tests/step06_contract_test
-	@timeout 5 ./$(TUT_SIG_DIR)/tests/step06_contract_test
+test-tutorial-signal-06: check-timeout $(TUT_SIG_DIR)/step06_sigwait $(TUT_SIG_DIR)/tests/step06_contract_test
+	@"$(TIMEOUT)" 5 ./$(TUT_SIG_DIR)/tests/step06_contract_test
 
-test-tutorial-signal: $(TUT_SIG_BINS) $(TUT_SIG_TESTS)
-	@set -e; for t in $(TUT_SIG_TESTS); do echo "=== $$t ==="; timeout 5 ./$$t; done
+test-tutorial-signal: check-timeout $(TUT_SIG_BINS) $(TUT_SIG_TESTS)
+	@set -e; for t in $(TUT_SIG_TESTS); do echo "=== $$t ==="; "$(TIMEOUT)" 5 ./$$t; done
 
 clean-tutorial-signal:
 	rm -f $(TUT_SIG_BINS) $(TUT_SIG_TESTS)

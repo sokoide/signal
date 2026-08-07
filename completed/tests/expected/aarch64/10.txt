@@ -21,7 +21,8 @@ Async-signal-safe examples (ok in handlers):
 
 UNSAFE in signal handlers (can deadlock or corrupt state):
   printf(), malloc(), free(), exit(), fopen(), fclose(),
-  pthread_mutex_lock(), pthread_mutex_unlock(), longjmp()
+  pthread_mutex_lock(), pthread_mutex_unlock()
+Conditionally safe: longjmp()/siglongjmp() only under POSIX's restrictions
 
 Rule of thumb: do as little as possible in a handler.
 Set a volatile sig_atomic_t flag and let main() do the rest.

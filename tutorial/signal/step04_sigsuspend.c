@@ -26,8 +26,9 @@ int main(void) {
      * する（他はそのままブロック）。
      *   5. sigsuspend(&waitmask) で原子的にマスク交換して待機。
      *      戻り値は通常 -1/EINTR。重要なのは戻った後に woke を再確認すること。
-     *   6. printf("woke=%d\n", (int)woke);
-     *   7. fflush(stdout); して return 0;
+     *   6. sigprocmask(SIG_SETMASK, &oldmask, NULL) で元のマスクを復元。
+     *   7. printf("woke=%d\n", (int)woke);
+     *   8. fflush(stdout); して return 0;
      *
      * マスク設定を誤ると sigsuspend から戻らず timeout 5
      * で強制終了（FAIL）する。 契約テストは "woke=1" を含み exit 0 のときのみ

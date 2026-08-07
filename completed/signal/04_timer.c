@@ -29,10 +29,12 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 /* 2つの timeval 間の経過マイクロ秒を計算するマクロ */
@@ -51,6 +53,7 @@
  */
 static volatile sig_atomic_t g_virtual_count = 0;
 static volatile sig_atomic_t g_real_count = 0;
+static volatile sig_atomic_t g_alarm_fired = 0;
 
 /*
  * SIGVTALRM ハンドラ。
@@ -75,11 +78,14 @@ static void real_handler(int sig) {
  * printf を避け、async-signal-safe な write() でメッセージを出力する。
  */
 static void alarm_handler(int sig) {
+    int saved_errno = errno;
     (void)sig;
+    g_alarm_fired = 1;
     const char msg[] = "[alarm] SIGALRM fired (one-shot)\n";
     /* write(2) は async-signal-safe */
     ssize_t ret = write(STDOUT_FILENO, msg, sizeof(msg) - 1);
     (void)ret;
+    errno = saved_errno;
 }
 
 /*
@@ -110,6 +116,7 @@ static void busy_loop_for_one_second(void) {
 
 int main(void) {
     struct sigaction sa;
+    sigset_t alarm_set, oldmask, waitmask;
 
     /*
      * ============================================================
@@ -131,21 +138,31 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
 
+    /* alarm() と待機の間で SIGALRM を取りこぼさないよう、先にブロックする。 */
+    sigemptyset(&alarm_set);
+    sigaddset(&alarm_set, SIGALRM);
+    if (sigprocmask(SIG_BLOCK, &alarm_set, &oldmask) == -1) {
+        perror("sigprocmask(SIG_BLOCK)");
+        exit(EXIT_FAILURE);
+    }
+
     /* 1秒後に SIGALRM をスケジュール */
     alarm(1);
 
     /*
-     * pause() はシグナルが配送されるまでスリープする。
-     * SIGALRM が到着すると、pause() は -1 を返す。
-     *
-     * このシンプルな「alarm してから pause」のシーケンスには
-     * 競合状態はない。しかし一般的な「条件を確認してから待機」
-     * のコードでは、確認と待機の間にシグナルが到着して見逃す
-     * 可能性がある（古典的な競合）。本番コードでは sigsuspend(2) を
-     * 使い、シグナルマスクの変更と待機を不可分に行うこと。
-     * （詳細は README「発展トピック」参照）
+     * alarm() の後に pause() を呼ぶだけでは、両者の間に SIGALRM が配送される
+     * 競合がある。sigsuspend() は一時マスクへの交換と待機を原子的に行う。
      */
-    pause();
+    waitmask = oldmask;
+    sigdelset(&waitmask, SIGALRM);
+    while (!g_alarm_fired) {
+        (void)sigsuspend(&waitmask);
+    }
+
+    if (sigprocmask(SIG_SETMASK, &oldmask, NULL) == -1) {
+        perror("sigprocmask(SIG_SETMASK)");
+        exit(EXIT_FAILURE);
+    }
 
     /*
      * alarm(0) は保留中のアラームをキャンセルする。
@@ -216,10 +233,10 @@ int main(void) {
            (int)g_virtual_count);
 
     /*
-     * (B) sleep() を使った ITIMER_REAL と ITIMER_VIRTUAL の違いの実演
+     * (B) 待機中の ITIMER_REAL と ITIMER_VIRTUAL の違いの実演
      *
-     * ポイント: sleep(1) はプロセスを一時停止するため、CPU 時間を消費しない。
-     * したがって ITIMER_VIRTUAL は sleep 中に発火しないが、
+     * ポイント: nanosleep() はプロセスを一時停止するため、CPU
+     * 時間を消費しない。 したがって ITIMER_VIRTUAL は待機中に発火しないが、
      * ITIMER_REAL（実時間）は関係なく発火し続ける。
      */
     printf(
@@ -249,7 +266,13 @@ int main(void) {
     }
 
     printf("sleep(1) starts...\n");
-    sleep(1);
+    struct timespec remaining = {.tv_sec = 1, .tv_nsec = 0};
+    while (nanosleep(&remaining, &remaining) == -1) {
+        if (errno != EINTR) {
+            perror("nanosleep");
+            exit(EXIT_FAILURE);
+        }
+    }
     printf("sleep(1) ended.\n");
 
     /* 両方のタイマを停止 */
@@ -270,6 +293,10 @@ int main(void) {
         "During sleep(1): REAL timer fired %d time(s), VIRTUAL timer fired %d "
         "time(s).\n",
         (int)g_real_count, (int)g_virtual_count);
+    if (g_real_count < 2 || g_virtual_count != 0) {
+        fprintf(stderr, "unexpected timer counts during sleep\n");
+        return EXIT_FAILURE;
+    }
 
     /*
      * (C) 注: ITIMER_PROF は「ユーザ CPU 時間 + カーネル CPU 時間」

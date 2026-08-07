@@ -279,10 +279,12 @@ static int main_branch(char* argv0) {
          *   - シグナルマスクは保持される。
          *   - 代替スタックはクリアされる。
          */
-        execl(argv0, argv0, "--after-exec", (char*)NULL);
+        char* const child_argv[] = {(char*)argv0, (char*)"--after-exec", NULL};
+        execvp(argv0, child_argv);
 
-        /* execl() は失敗時にのみ戻る */
-        perror("execl");
+        /* execvp() は失敗時にのみ戻る。argv0 に '/' がなければ PATH
+         * を検索する。 */
+        perror("execvp");
         _exit(EXIT_FAILURE);
     }
 
@@ -297,6 +299,8 @@ static int main_branch(char* argv0) {
         printf("\nChild exited successfully.\n");
     } else {
         printf("\nChild did not exit successfully.\n");
+        free(alt_stack_mem);
+        return EXIT_FAILURE;
     }
 
     printf("\n");

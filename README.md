@@ -104,6 +104,11 @@ sigprocmask(SIG_UNBLOCK, &set, NULL);
 
 共有フラグには `volatile sig_atomic_t` の単一読み書きを使います。`++` のような read-modify-write の安全性は一般には保証されません。Step 3 の `deliveries++` は、単一スレッドで同じシグナルがハンドラ実行中に自動ブロックされるという限定条件で、マージ後の配送回数を観察するためだけに使います。標準シグナルはハンドラに届く前にマージされるため、self-pipe は配送後の処理を通常コンテキストへ渡せても、送信ごとの回数・値を復元できません。個別イベントを保持するなら通常の IPC、または対応環境のリアルタイムシグナルを使います。
 
+完成例 04/08/10 のカウンタも、同種シグナルがハンドラ中にブロックされ、通常コードが
+更新しないという Linux/macOS 上の限定デモです。古い POSIX 版まで含む厳格な移植性が
+必要なコードでは、ハンドラ内は単純代入のフラグに限定するか、利用環境で lock-free と
+確認した原子型を使ってください。
+
 `91_printf_deadlock` は、main スレッドが stdio ロックを保持したまま、別スレッドのハンドラが `printf` で同じロックを待つ状況を示します。libc のロック再入性は実装差があるため、「単一スレッドなら必ずデッドロックする」と一般化しないでください。
 
 ## 標準シグナルとリアルタイムシグナル
@@ -120,9 +125,11 @@ Linux の `do_signal`、`get_signal`、アーキテクチャ別の signal frame�
 
 ## ビルドと実行
 
+以下のコマンドはリポジトリルートで実行します。
+
 ```sh
 make completed       # 完成例をビルド（make と同じ）
-make run-completed   # 完成例を自動実行（91 は除外）
+make run-completed   # 自己終了する完成例を自動実行（対話型の 07 と番外編 91 は除外）
 make test-tutorial-signal-01  # 演習 Step 1 の契約を確認
 make test-tutorial-signal     # 全 Step 完了後の確認
 make run-tutorial-signal      # 各 Step を実行（未実装の Step は exit 2 で止まるため、
@@ -135,7 +142,11 @@ timeout 5 ./91_printf_deadlock  # 意図的に停止する番外編
 チュートリアルは初期状態では TODO のため失敗します。これは正しい開始状態です。
 各 Step を実装してから個別テストを通してください。
 
-macOS で `timeout` が必要なら `brew install coreutils` 後に `gtimeout` を使います。`06_realtime` や Linux 固有 API は対応環境でのみ実行してください。検証手順と期待値は [`completed/tests/README.md`](completed/tests/README.md) を参照します。
+自動実行と契約テストには GNU `timeout` が必要です。macOS では
+`brew install coreutils` で導入すると、Makefile が `gtimeout` を自動検出します。
+別の互換コマンドを使う場合は `make TIMEOUT=/path/to/timeout ...` と指定します。
+`06_realtime` や Linux 固有 API は対応環境でのみ実行してください。検証手順と期待値は
+[`completed/tests/README.md`](completed/tests/README.md) を参照します。
 
 ## さらに学ぶ
 

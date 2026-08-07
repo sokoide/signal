@@ -36,6 +36,7 @@
 #endif
 #endif
 
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,12 +53,14 @@ static void* alt_stack_mem = NULL;
  * printf() は内部ロックを保持する可能性があるため、ハンドラ内では禁止。
  */
 static void safe_puts(const char* s) {
+    int saved_errno = errno;
     size_t len = 0;
     while (s[len] != '\0') {
         len++;
     }
     ssize_t ret = write(STDOUT_FILENO, s, len);
     (void)ret;
+    errno = saved_errno;
 }
 
 /*
@@ -68,7 +71,7 @@ static void safe_puts(const char* s) {
  *
  * ハンドラ内では:
  *   1. 配送されたシグナル名を表示。
- *   2. sigaltstack() で実際に代替スタック上にいることを確認。
+ *   2. SA_ONSTACK 付きハンドラに入ったことを固定メッセージで記録。
  *   3. _exit() でプロセスを安全に終了。
  */
 static void segv_handler(int sig, siginfo_t* info, void* ucontext) {
@@ -78,22 +81,10 @@ static void segv_handler(int sig, siginfo_t* info, void* ucontext) {
 
     safe_puts("\n[Caught SIGSEGV in handler]\n");
 
-    /*
-     * sigaltstack(NULL, &current) は現在の代替スタック情報を取得する。
-     * ハンドラが代替スタック上で実行中の場合、ss_flags に SS_ONSTACK フラグが
-     * セットされる。値が 1 であれば、確かに代替スタック上で実行中であることが
-     * 確認できる。
-     */
-    stack_t current;
-    if (sigaltstack(NULL, &current) == -1) {
-        safe_puts("  sigaltstack() failed inside handler\n");
-    } else {
-        if (current.ss_flags & SS_ONSTACK) {
-            safe_puts("  Handler IS running on the alternate stack.\n");
-        } else {
-            safe_puts("  Handler is NOT running on the alternate stack (!)\n");
-        }
-    }
+    /* sigaltstack() 自体は async-signal-safe ではないため、ハンドラ内から
+     * SS_ONSTACK を問い合わせない。ここに到達できることと、登録時の
+     * SA_ONSTACK がこの例で観察する契約。 */
+    safe_puts("  Handler entered with SA_ONSTACK.\n");
 
     /*
      * ハンドラ内からプロセスを終了するには _exit(2) を使う。

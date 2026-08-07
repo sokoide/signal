@@ -19,6 +19,12 @@
 /10_signal_safety
 /91_printf_deadlock
 
+# Tutorial binaries and contract-test executables
+/tutorial/signal/step[0-9][0-9]_*
+!/tutorial/signal/step[0-9][0-9]_*.c
+/tutorial/signal/tests/step[0-9][0-9]_contract_test
+!/tutorial/signal/tests/step[0-9][0-9]_contract_test.c
+
 # macOS debug bundles
 *.dSYM/
 

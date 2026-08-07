@@ -8,10 +8,10 @@
  * ----
  * イベント駆動型プログラムは、select()、poll()、epoll()、kqueue() などを
  * 使ってファイルディスクリプタ上のアクティビティを待つ。これらの API は
- * FD しか監視できない。シグナルはファイルディスクリプタではないため、
- * メインループが select() でブロック中にシグナルが到着しても、それだけで
- * select() が戻ることはない。そのため、「シグナルが到着した」と
- * 「FD が読み取り可能になった」の間をつなぐ橋渡しが必要。
+ * FD しか監視できない。シグナルで select() が EINTR を返すことはあるが、
+ * それだけでは到着を FD イベントとして保持できない。そのため、
+ * 「シグナルが到着した」と「FD が読み取り可能になった」の間をつなぐ
+ * 橋渡しが必要。
  *
  * 解決策（self-pipe）
  * --------------------
@@ -150,17 +150,30 @@ static int register_selfpipe_signal(int sig) {
         return -1;
     }
 
-    /* SA_RESTART は使わない。メインスレッドが select() でブロック中に
-     * シグナルが到着した場合、select() が EINTR で戻って FD セットを
-     * 再評価できるようにしたい。実際には、セルフパイプが読み取り可能に
-     * なることで select() が戻るので EINTR は起こらないが、
-     * 再開するのは逆効果。 */
+    /* SA_RESTART は使わない。select() はシグナル配送により EINTR で戻ることも、
+     * パイプの読み取り可能状態を報告して戻ることもある。EINTR の場合は
+     * メインループで再試行し、次の select() でパイプを処理する。 */
     sa.sa_flags = 0;
 
     if (sigaction(sig, &sa, NULL) == -1) {
         return -1;
     }
     return 0;
+}
+
+static void close_selfpipe_safely(void) {
+    sigset_t set;
+
+    sigemptyset(&set);
+    sigaddset(&set, SIGINT);
+    sigaddset(&set, SIGTERM);
+    (void)sigprocmask(SIG_BLOCK, &set, NULL);
+
+    /* Block the handlers before invalidating the descriptors they use. */
+    (void)close(selfpipe[1]);
+    (void)close(selfpipe[0]);
+    selfpipe[0] = -1;
+    selfpipe[1] = -1;
 }
 
 int main(void) {
@@ -183,14 +196,12 @@ int main(void) {
      */
     if (set_nonblocking(selfpipe[1]) == -1) {
         perror("fcntl O_NONBLOCK (write end)");
-        close(selfpipe[0]);
-        close(selfpipe[1]);
+        close_selfpipe_safely();
         return EXIT_FAILURE;
     }
     if (set_nonblocking(selfpipe[0]) == -1) {
         perror("fcntl O_NONBLOCK (read end)");
-        close(selfpipe[0]);
-        close(selfpipe[1]);
+        close_selfpipe_safely();
         return EXIT_FAILURE;
     }
 
@@ -200,14 +211,12 @@ int main(void) {
      */
     if (register_selfpipe_signal(SIGINT) == -1) {
         perror("sigaction SIGINT");
-        close(selfpipe[0]);
-        close(selfpipe[1]);
+        close_selfpipe_safely();
         return EXIT_FAILURE;
     }
     if (register_selfpipe_signal(SIGTERM) == -1) {
         perror("sigaction SIGTERM");
-        close(selfpipe[0]);
-        close(selfpipe[1]);
+        close_selfpipe_safely();
         return EXIT_FAILURE;
     }
 
@@ -289,8 +298,7 @@ int main(void) {
                                 "dropped due to a full self-pipe buffer.\n",
                                 (int)selfpipe_overflow_count);
                         }
-                        close(selfpipe[0]);
-                        close(selfpipe[1]);
+                        close_selfpipe_safely();
                         return EXIT_SUCCESS;
                     }
                 }
@@ -317,7 +325,6 @@ int main(void) {
     }
 
     /* 後片付け */
-    close(selfpipe[0]);
-    close(selfpipe[1]);
+    close_selfpipe_safely();
     return EXIT_SUCCESS;
 }

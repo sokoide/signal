@@ -14,6 +14,7 @@
 #ifndef SAFE_HELPERS_H
 #define SAFE_HELPERS_H
 
+#include <errno.h>
 #include <unistd.h>
 
 /* ヌル終端文字列を標準出力へ best-effort で書き込む。
@@ -21,6 +22,7 @@
  * 全文が出ない可能性がある。完全な出力が必要な用途では戻り値を検査し、
  * 通常コード側で再試行すること（ハンドラ内の無限再試行は避ける）。 */
 static inline void safe_write_str(const char* s) {
+    int saved_errno = errno;
     size_t n = 0;
 
     while (s[n] != '\0') {
@@ -29,10 +31,12 @@ static inline void safe_write_str(const char* s) {
 
     ssize_t ret = write(STDOUT_FILENO, s, n);
     (void)ret;
+    errno = saved_errno;
 }
 
 /* signed long long 整数を10進数で標準出力へ best-effort で書き込む。 */
 static inline void safe_write_int(long long v) {
+    int saved_errno = errno;
     char buf[32];
     int i = (int)sizeof(buf) - 1;
     int negative = (v < 0);
@@ -65,11 +69,13 @@ static inline void safe_write_int(long long v) {
     ssize_t ret =
         write(STDOUT_FILENO, &buf[i + 1], sizeof(buf) - 2 - (size_t)i);
     (void)ret;
+    errno = saved_errno;
 }
 
 /* unsigned long long 整数を16進数（小文字）で標準出力へ best-effort
  * で書き込む。 */
 static inline void safe_write_hex(unsigned long long v) {
+    int saved_errno = errno;
     const char hex[] = "0123456789abcdef";
     char buf[24];
     int i = (int)sizeof(buf) - 1;
@@ -91,6 +97,7 @@ static inline void safe_write_hex(unsigned long long v) {
     ssize_t ret =
         write(STDOUT_FILENO, &buf[i + 1], sizeof(buf) - 2 - (size_t)i);
     (void)ret;
+    errno = saved_errno;
 }
 
 #endif /* SAFE_HELPERS_H */

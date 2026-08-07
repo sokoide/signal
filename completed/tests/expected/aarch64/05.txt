@@ -4,5 +4,5 @@ Now triggering stack overflow via deep recursion...
 Main stack soft limit lowered to 1048576 bytes.
 
 [Caught SIGSEGV in handler]
-  Handler IS running on the alternate stack.
+  Handler entered with SA_ONSTACK.
   Calling _exit(128 + SIGSEGV) safely...

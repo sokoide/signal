@@ -77,6 +77,7 @@
 #endif
 #endif
 
+#include <errno.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -136,6 +137,7 @@ static void safe_hex(uintptr_t val) {
  * ハードウェアのトラップフレームと正確に対応する。
  */
 static void sigvtalrm_isr(int sig, siginfo_t* info, void* uctx_ptr) {
+    int saved_errno = errno;
     (void)info;
 
     /* 不透明な第3引数を具体的なコンテキスト型にキャスト */
@@ -247,6 +249,7 @@ static void sigvtalrm_isr(int sig, siginfo_t* info, void* uctx_ptr) {
      * と競合しない。sig_atomic_t 自体が read-modify-write 全体の原子性を
      * 保証するわけではない点に注意（SA_NODEFER や複数スレッドでは不十分）。 */
     ++interrupt_count;
+    errno = saved_errno;
 }
 
 /*

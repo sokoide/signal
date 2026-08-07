@@ -5,6 +5,8 @@
 `TODO(step N)` の stub から始まります。まず自力で実装し、詰まったときだけ
 `completed/signal/` の関連例を比較してください。
 
+以下のコマンドはリポジトリルートで実行します。
+
 ```sh
 make test-tutorial-signal-NN   # Step NN だけ実装して確認（推奨）
 make test-tutorial-signal      # 全 Step 完了後の確認
@@ -49,9 +51,9 @@ Step 1〜6 を終えると、次が説明できるようになります。
 | 1 | `step01_basics.c` | ハンドラは最小のフラグ更新だけをし、通常コードが結果を読む | `flag=1` | `completed/signal/01_signal_basics.c` |
 | 2 | `step02_sigaction.c` | `SA_SIGINFO` で配送理由（`si_pid`）を受ける | `count=1` | `completed/signal/02_sigaction.c` |
 | 3 | `step03_mask_pending.c` | ブロック中の標準シグナルは pending になり、到着回数は保存されない | `pending=1`・`deliveries=1` | `completed/signal/03_blocking.c` |
-| 4 | `step04_sigsuspend.c` | マスク交換と待機を原子的に行い、取りこぼしを防ぐ | `woke=1` | `completed/signal/03_blocking.c` |
+| 4 | `step04_sigsuspend.c` | マスク交換と待機を原子的に行い、取りこぼしを防ぐ | `woke=1` | 直接対応する完成例なし |
 | 5 | `step05_selfpipe.c` | ハンドラは pipe へ通知し、イベント処理は通常コンテキストで行う | `match=1` | `completed/signal/07_selfpipe.c` |
-| 6 | `step06_sigwait.c` | シグナルをブロックして同期的に取り出せば、ハンドラが不要になる | `match=1` | `completed/signal/06_realtime.c`（sigwaitinfo は Linux 専用） |
+| 6 | `step06_sigwait.c` | シグナルをブロックして同期的に取り出せば、ハンドラが不要になる | `match=1` | 直接対応する完成例なし（Linux 専用の発展例は `06_realtime.c`） |
 
 `stepNN_*.c` が演習対象、`tests/stepNN_contract_test.c` が契約テストです。
 ハンドラ内では async-signal-safe な操作だけを使い、`printf` や `malloc` は呼びません。
@@ -126,7 +128,9 @@ Step 1〜6 を終えると、次が説明できるようになります。
   3. `raise(SIGUSR1)` — ブロック中なので pending になる。
   4. `waitmask = oldmask` をコピーし、`sigdelset(&waitmask, SIGUSR1)` で SIGUSR1 を受ける状態に。
   5. `sigsuspend(&waitmask)` で原子的にマスク交換して待機。戻り値は通常 `-1/EINTR`。
-  6. 戻ったら `woke` を再確認し `printf("woke=%d\n", (int)woke);` → `fflush` → `return 0;`。
+  6. 戻ったら `woke` を再確認し、`sigprocmask(SIG_SETMASK, &oldmask, NULL)` で
+     元のマスクを復元する。
+  7. `printf("woke=%d\n", (int)woke);` → `fflush` → `return 0;`。
 - **ヒント**: マスク設定を誤ると `sigsuspend` から戻らず、テストが `timeout 5` で
   強制終了して FAIL になる。
 - **PASS**: `PASS step 4: sigsuspend swaps the mask and waits without losing the signal`

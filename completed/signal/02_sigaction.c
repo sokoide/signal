@@ -119,7 +119,7 @@ static void nodefer_handler(int sig, siginfo_t* info, void* ucontext) {
 }
 
 /*
- * SA_RESETHAND ハンドラ。カーネルはこのハンドラが戻った後、
+ * SA_RESETHAND ハンドラ。カーネルはこのハンドラへ入るときに、
  * 処理方法を SIG_DFL にリセットする。そのため、2度目の raise() は
  * デフォルト動作（無視）を使う。SIGCHLD のデフォルト動作は
  * シグナルを無視することなので、プログラムは生存し続ける。
@@ -251,7 +251,18 @@ int main(void) {
         fflush(stdout);
 
         (void)close(pipefd[0]);
-        (void)wait(NULL);
+        int status;
+        while (waitpid(pid, &status, 0) == -1) {
+            if (errno == EINTR) {
+                continue;
+            }
+            perror("waitpid(SA_RESTART child)");
+            return EXIT_FAILURE;
+        }
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != EXIT_SUCCESS) {
+            fprintf(stderr, "SA_RESTART child did not exit successfully\n");
+            return EXIT_FAILURE;
+        }
     }
 
     /* ================================================================
@@ -333,7 +344,13 @@ int main(void) {
         _exit(EXIT_FAILURE);
     } else {
         int status;
-        (void)wait(&status);
+        while (waitpid(pid, &status, 0) == -1) {
+            if (errno == EINTR) {
+                continue;
+            }
+            perror("waitpid(SIGSEGV child)");
+            return EXIT_FAILURE;
+        }
         if (WIFEXITED(status)) {
             printf("Main: child exited with status %d\n", WEXITSTATUS(status));
         } else if (WIFSIGNALED(status)) {

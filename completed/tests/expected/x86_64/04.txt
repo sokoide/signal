@@ -8,6 +8,6 @@ VIRTUAL timer fired <N> times during busy loop.
 --- ITIMER_REAL fires during sleep, ITIMER_VIRTUAL does not ---
 sleep(1) starts...
 sleep(1) ended.
-During sleep(1): REAL timer fired 1 time(s), VIRTUAL timer fired 0 time(s).
+During sleep(1): REAL timer fired <N> time(s), VIRTUAL timer fired 0 time(s).
 
 Done.

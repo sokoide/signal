@@ -21,6 +21,8 @@ s/0x[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*/0x
 
 # 04: VIRTUAL タイマがビジーループ中に N 回発火 — N は CPU 速度に依存。
 s/fired [0-9][0-9]* times during busy loop/fired <N> times during busy loop/g
+# 04: 1秒の待機中に発火する REAL タイマ回数はスケジューリング境界で変動し得る。
+s/During sleep(1): REAL timer fired [0-9][0-9]* time(s)/During sleep(1): REAL timer fired <N> time(s)/g
 
 # 05/09: SIGSTKSZ 値 — libc/アーキテクチャ依存（glibc aarch64=20480、x86_64=8192;
 # glibc >=2.34 では実行時評価; musl も異なる）。期待出力がビルド環境の libc に

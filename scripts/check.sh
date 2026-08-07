@@ -14,6 +14,13 @@ mode="${1:-check}"
 machines=(arm64-linux-env x64-linux-env)
 rc=0
 
+if [ "$mode" != "generate" ]; then
+    for arch in aarch64 x86_64; do
+        mkdir -p "completed/tests/out/$arch"
+        rm -f "completed/tests/out/$arch"/*.txt
+    done
+fi
+
 for m in "${machines[@]}"; do
     echo "===== $m ====="
     if ! scripts/in-linux.sh "$m" scripts/check-linux.sh "$mode"; then
@@ -21,6 +28,11 @@ for m in "${machines[@]}"; do
         rc=1
     fi
 done
+
+# Do not compare stale or partial output when either machine run failed.
+if [ "$rc" -ne 0 ]; then
+    exit "$rc"
+fi
 
 if [ "$mode" = "generate" ]; then
     echo "Expected outputs regenerated under completed/tests/expected/{aarch64,x86_64}/"

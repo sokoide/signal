@@ -1,5 +1,6 @@
 CC      ?= cc
 CFLAGS  ?= -std=c11 -Wall -Wextra -O2 -g
+TIMEOUT ?= $(shell command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null)
 
 # macOS: <ucontext.h> (used by 05/08/09) is marked deprecated but still works.
 # Silence the -Wdeprecated-declarations noise on Darwin only.
@@ -48,34 +49,35 @@ run-completed: run
 91_printf_deadlock: $(COMPLETED_DIR)/91_printf_deadlock.c
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS) -lpthread
 
-run: $(BINS)
-	@echo "=== Running 01_signal_basics ==="
-	@timeout 3 ./01_signal_basics || true
+check-timeout:
+	@if [ -z "$(TIMEOUT)" ]; then \
+		echo "error: GNU timeout is required (macOS: brew install coreutils)" >&2; \
+		exit 127; \
+	fi
+
+# Run one self-terminating sample and reject unexpected exits. 01 terminates
+# itself with SIGINT (128 + 2), while 05 exits from its SIGSEGV handler with
+# 128 + SIGSEGV. Every other automated sample must return zero.
+define run_sample
+	@echo "=== Running $(1) ==="
+	@set +e; "$(TIMEOUT)" $(2) ./$(1); rc=$$?; set -e; \
+	case "$(1):$$rc" in \
+		01_signal_basics:130|05_altstack:139|*:0) ;; \
+		*) echo "ERROR: $(1) exited unexpectedly (rc=$$rc)" >&2; exit $$rc ;; \
+	esac
 	@echo ""
-	@echo "=== Running 02_sigaction ==="
-	@timeout 3 ./02_sigaction || true
-	@echo ""
-	@echo "=== Running 03_blocking ==="
-	@timeout 3 ./03_blocking || true
-	@echo ""
-	@echo "=== Running 04_timer ==="
-	@timeout 8 ./04_timer || true
-	@echo ""
-	@echo "=== Running 05_altstack ==="
-	@timeout 3 ./05_altstack || true
-	@echo ""
-	@echo "=== Running 06_realtime ==="
-	@timeout 3 ./06_realtime || true
-	@echo ""
-	@echo "=== Running 08_hw_interrupt ==="
-	@timeout 3 ./08_hw_interrupt || true
-	@echo ""
-	@echo "=== Running 09_fork_exec ==="
-	@timeout 3 ./09_fork_exec || true
-	@echo ""
-	@echo "=== Running 10_signal_safety ==="
-	@timeout 8 ./10_signal_safety || true
-	@echo ""
+endef
+
+run: check-timeout $(BINS)
+	$(call run_sample,01_signal_basics,3)
+	$(call run_sample,02_sigaction,3)
+	$(call run_sample,03_blocking,3)
+	$(call run_sample,04_timer,8)
+	$(call run_sample,05_altstack,3)
+	$(call run_sample,06_realtime,3)
+	$(call run_sample,08_hw_interrupt,3)
+	$(call run_sample,09_fork_exec,3)
+	$(call run_sample,10_signal_safety,8)
 	@echo "=== All examples completed ==="
 	@echo ""
 	@echo "Note: 07_selfpipe is interactive (select() event loop)."
@@ -140,4 +142,4 @@ clean:
 
 include tutorial/targets.mk
 
-.PHONY: all completed format clean run run-completed run-interactive linux-machines linux-setup expected check
+.PHONY: all completed format clean check-timeout run run-completed run-interactive linux-machines linux-setup expected check

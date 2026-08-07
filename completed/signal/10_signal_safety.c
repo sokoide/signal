@@ -22,6 +22,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,6 +51,7 @@ static volatile sig_atomic_t signal_count = 0;
  * このヘルパー自身も async-signal-safe な関数だけを呼ぶ。
  */
 static void safe_write(const char* msg) {
+    int saved_errno = errno;
     size_t len = 0;
     while (msg[len] != '\0') {
         ++len;
@@ -62,6 +64,7 @@ static void safe_write(const char* msg) {
      */
     ssize_t ret = write(STDERR_FILENO, msg, len);
     (void)ret;
+    errno = saved_errno;
 }
 
 /*
@@ -142,6 +145,7 @@ static void unsafe_handler_example(int sig)
 
 int main(void) {
     struct sigaction sa;
+    sigset_t alarm_set, oldmask, waitmask;
 
     /* 安全な SIGALRM ハンドラをインストール */
     sigemptyset(&sa.sa_mask);
@@ -165,37 +169,43 @@ int main(void) {
         "sig_atomic_t.)\n\n");
     fflush(stdout);
 
+    /* フラグの read-clear と待機を SIGALRM に割り込まれないようにする。 */
+    sigemptyset(&alarm_set);
+    sigaddset(&alarm_set, SIGALRM);
+    if (sigprocmask(SIG_BLOCK, &alarm_set, &oldmask) == -1) {
+        perror("sigprocmask(SIG_BLOCK)");
+        exit(EXIT_FAILURE);
+    }
+    waitmask = oldmask;
+    sigdelset(&waitmask, SIGALRM);
+
     /* タイマを開始。alarm() は通常コードでも安全。 */
     alarm(1);
 
     /*
-     * メインループはハンドラがセットするフラグをポーリングする。
-     * これが古典的な安全パターン: ハンドラは最小限のことだけを行い、
+     * メインループはハンドラがセットするフラグを sigsuspend() で待つ。
+     * ハンドラは最小限のことだけを行い、
      * メインの流れがフラグに反応する。すべての非安全な関数
      * （printf、fflush 等）はここ、ハンドラではなくメインで実行される。
      */
     while (signal_count < MAX_SIGNALS || got_signal) {
-        if (got_signal) {
-            /*
-             * フラグをリセット。ハンドラとメインの両方が got_signal に
-             * 触れるため、sig_atomic_t でなければならない。ここでクリア
-             * することで、ループは次の配送を待つ。
-             */
-            got_signal = 0;
-            printf("[main]    saw got_signal; count = %d\n", (int)signal_count);
-            fflush(stdout);
+        while (!got_signal) {
+            (void)sigsuspend(&waitmask);
         }
 
-        /*
-         * 短いスリープで、タイマを待つ間に CPU をアイドル状態にする。
-         * sleep() は async-signal-safe ではないが、シグナルハンドラ
-         * ではなく main() から呼ばれているため問題ない。
-         */
-        sleep(1);
+        /* sigsuspend() 復帰時には SIGALRM が再びブロックされているため、
+         * read-clear の間にハンドラが割り込んで通知を上書きしない。 */
+        got_signal = 0;
+        printf("[main]    saw got_signal; count = %d\n", (int)signal_count);
+        fflush(stdout);
     }
 
     /* 完了したので保留中のアラームをキャンセル */
     alarm(0);
+    if (sigprocmask(SIG_SETMASK, &oldmask, NULL) == -1) {
+        perror("sigprocmask(SIG_SETMASK)");
+        exit(EXIT_FAILURE);
+    }
 
     printf("\n");
     printf("Demo complete.\n");
@@ -207,7 +217,9 @@ int main(void) {
     printf("\n");
     printf("UNSAFE in signal handlers (can deadlock or corrupt state):\n");
     printf("  printf(), malloc(), free(), exit(), fopen(), fclose(),\n");
-    printf("  pthread_mutex_lock(), pthread_mutex_unlock(), longjmp()\n");
+    printf("  pthread_mutex_lock(), pthread_mutex_unlock()\n");
+    printf("Conditionally safe: longjmp()/siglongjmp() only under POSIX's ");
+    printf("restrictions\n");
     printf("\n");
     printf("Rule of thumb: do as little as possible in a handler.\n");
     printf("Set a volatile sig_atomic_t flag and let main() do the rest.\n");

@@ -67,6 +67,7 @@ int main(void) {
  * 競合も発生しない。
  */
 #define MAX_EVENTS 64
+#define EXPECTED_EVENTS 15
 static struct {
     int sig;
     int data;
@@ -278,7 +279,11 @@ int main(void) {
             if (errno == EINTR) {
                 continue; /* ブロック解除されたシグナルによる割り込み: 再試行 */
             }
-            break; /* EAGAIN: すべての保留シグナルを収集完了 */
+            if (errno == EAGAIN) {
+                break; /* すべての保留シグナルを収集完了 */
+            }
+            perror("sigtimedwait");
+            return EXIT_FAILURE;
         }
         g_events[g_event_count].sig = sig;
         g_events[g_event_count].data = info.si_value.sival_int;
@@ -294,6 +299,26 @@ int main(void) {
            g_usr1_received ? "was delivered" : "was NOT delivered");
 
     print_events();
+
+    if (!g_usr1_received || g_event_count != EXPECTED_EVENTS) {
+        fprintf(stderr, "unexpected signal delivery counts\n");
+        return EXIT_FAILURE;
+    }
+    for (int i = 0; i < 10; i++) {
+        int expected_data = i < 5 ? 100 + i : 300 + (i - 5);
+        if (g_events[i].sig != SIGRTMIN || g_events[i].data != expected_data) {
+            fprintf(stderr, "unexpected SIGRTMIN queue order at event %d\n", i);
+            return EXIT_FAILURE;
+        }
+    }
+    for (int i = 10; i < EXPECTED_EVENTS; i++) {
+        if (g_events[i].sig != SIGRTMIN + 1 ||
+            g_events[i].data != 200 + (i - 10)) {
+            fprintf(stderr, "unexpected SIGRTMIN+1 queue order at event %d\n",
+                    i);
+            return EXIT_FAILURE;
+        }
+    }
 
     /*
      * 期待される結果:
